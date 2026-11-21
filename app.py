@@ -37,6 +37,8 @@ client = httpx.AsyncClient(timeout=45)
 
 # ---------------- LLM helpers ----------------
 async def chat(messages, max_tokens, temperature, schema=None):
+    if not LLM_URL:  # no model on this box (e.g. the GL.iNet profile): callers fall back to plain text
+        raise RuntimeError("no LLM configured")
     body = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature,
             "repeat_penalty": 1.15, "cache_prompt": True}
     if schema:
@@ -335,6 +337,8 @@ async def turn(t: Turn):
 @app.get("/api/health")
 async def health():
     try:
+        if not LLM_URL:
+            return {"llm": "none", "model": None}
         r = await client.get(f"{LLM_URL}/v1/models", timeout=3)
         r.raise_for_status()
         model = r.json()["data"][0]["id"]

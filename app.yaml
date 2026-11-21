@@ -1,0 +1,14 @@
+# AirplaneMode app manifest. See the platform repo: docs/app-contract.md
+id: darklight
+name: The Dark Light
+description: A storm, a dark lighthouse, a ship heading for the rocks. A text adventure with five endings, narrated by the on-board model.
+image: ghcr.io/jessewolcott/airplanemode-darklight
+port: 8000
+path: /darklight/
+memory: 256m          # tested peak is well under this
+needs:
+  llm: optional       # without it, narration falls back to the engine's plain text
+env:
+  LLM_URL: URL of the shared model (OpenAI-compatible chat API). Empty = no model.
+  NARRATE: "1 to narrate story beats with the model, 0 to always use plain text."
+  STUCK_TURNS: Turns without progress before a hint appears (default 6).

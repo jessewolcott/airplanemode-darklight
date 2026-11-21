@@ -1,0 +1,24 @@
+# Standalone development: the game plus its own small model, without the rest of AirplaneMode.
+#   docker compose up -d --build      ->  http://localhost:8765
+# On the box, the game runs from the airplanemode platform repo instead, using the shared model.
+
+name: darklight-dev
+
+services:
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server-b12602
+    command: ["-hf", "${MODEL:-Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M}", "--host", "0.0.0.0", "--port", "8080", "-c", "4096", "-np", "2"]
+    environment:
+      LLAMA_CACHE: /models
+    volumes:
+      - models:/models
+
+  darklight:
+    build: .
+    environment:
+      LLM_URL: http://llm:8080
+    ports:
+      - "${PORT:-8765}:8000"
+
+volumes:
+  models:

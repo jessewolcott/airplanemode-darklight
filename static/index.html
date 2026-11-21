@@ -221,7 +221,7 @@ async function newGame() {
   log.innerHTML = "";
   const el = addEntry(null);
   try {
-    const d = await post("/api/new");
+    const d = await post("api/new");
     session = d.session; MAP = d.map; ENDINGS_TOTAL = d.endings_total;
     fill(el, d);
   } catch (e) { fill(el, { text: "Could not start the game: " + e.message }); }
@@ -236,7 +236,7 @@ $("#f").addEventListener("submit", async e => {
   $("#cmd").value = "";
   $("#go").disabled = true;
   const el = addEntry(text);
-  try { fill(el, await post("/api/turn", { session, input: text })); }
+  try { fill(el, await post("api/turn", { session, input: text })); }
   catch (err) { fill(el, { text: err.message }); if (/session/i.test(err.message)) session = null; $("#go").disabled = false; }
   if (!$("#cmd").disabled) { $("#go").disabled = false; $("#cmd").focus(); }
 });
@@ -251,9 +251,9 @@ $("#showFacts").addEventListener("change", e => document.body.classList.toggle("
 
 async function checkLLM() {
   try {
-    const d = await (await fetch("/api/health")).json();
-    $("#llm").innerHTML = `<span class="dot ${d.llm}"></span>narrator: ${d.llm === "ready" ? esc(d.model.split("/").pop()) : "offline (plain text)"}`;
-    if (d.llm !== "ready") setTimeout(checkLLM, 5000);
+    const d = await (await fetch("api/health")).json();
+    $("#llm").innerHTML = `<span class="dot ${d.llm}"></span>narrator: ${d.llm === "ready" ? esc(d.model.split("/").pop()) : d.llm === "none" ? "plain text" : "offline (plain text)"}`;
+    if (d.llm === "offline") setTimeout(checkLLM, 5000);
   } catch { setTimeout(checkLLM, 5000); }
 }
 checkLLM();
