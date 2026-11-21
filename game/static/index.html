@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Dark Light</title>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #14171c; --line: #252a32;
+    --ink: #d9d4c7; --dim: #8a877f; --lamp: #f2b34b; --you: #9cc3e6; --bad: #e07a6a; --good: #7bc47f;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+  .app { height: 100%; max-width: 1060px; margin: 0 auto; padding: 0 16px; display: grid;
+         grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto auto;
+         grid-template-areas: "header" "log" "status" "form"; }
+  @media (min-width: 940px) {
+    .app { grid-template-columns: minmax(0, 1fr) 260px; column-gap: 28px;
+           grid-template-areas: "header header" "log side" "status side" "form side"; }
+  }
+  header { grid-area: header; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 20px 0 12px; border-bottom: 1px solid var(--line); }
+  h1 { font: 600 1.35rem/1.2 var(--serif); margin: 0; letter-spacing: .02em; white-space: nowrap; }
+  h1 span { color: var(--lamp); }
+  .meta { font: .75rem var(--mono); color: var(--dim); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); margin-right: 6px; }
+  .dot.ready { background: var(--good); } .dot.offline { background: var(--bad); }
+  button, label { font: .75rem var(--mono); color: var(--dim); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+  button:hover, label:hover { color: var(--ink); border-color: var(--dim); }
+  label input { vertical-align: -2px; margin: 0 4px 0 0; }
+  #mapToggle { display: inline-block; }
+  @media (min-width: 940px) { #mapToggle { display: none; } }
+
+  #log { grid-area: log; overflow-y: auto; padding: 20px 0; scroll-behavior: smooth; }
+  .entry { margin: 0 0 18px; animation: in .35s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } }
+  .you { font: .9rem var(--mono); color: var(--you); margin-bottom: 6px; }
+  .you::before { content: "> "; color: var(--dim); }
+  .story { font: 1.12rem/1.65 var(--serif); margin: 0; }
+  .story.plain { color: #c9c4b6; }
+  .story.intro { font-style: italic; color: var(--dim); margin-bottom: 12px; }
+  .beat { font: italic 1rem/1.55 var(--serif); color: #c7a56b; margin: 8px 0 0; padding-left: 12px; border-left: 2px solid #5b4a2c; }
+  .hint { font: italic .95rem/1.5 var(--serif); color: var(--lamp); margin: 8px 0 0; opacity: .85; }
+  .hint::before { content: "A thought: "; font-style: normal; }
+  .facts { display: none; font: .72rem/1.5 var(--mono); color: var(--dim); margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line); white-space: pre-wrap; }
+  body.show-facts .facts { display: block; }
+  .thinking { font: italic 1rem var(--serif); color: var(--dim); }
+  .thinking::after { content: "…"; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .ending { margin: 14px 0 6px; padding: 18px 20px; border: 1px solid var(--line); border-top: 3px solid var(--tone, var(--lamp)); border-radius: 6px; background: var(--panel); }
+  .ending .kicker { font: .7rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .ending h2 { font: 600 1.4rem/1.3 var(--serif); margin: 4px 0 10px; color: var(--tone, var(--lamp)); }
+  .ending p { font: 1.05rem/1.6 var(--serif); margin: 0 0 14px; }
+  .ending button { color: var(--bg); background: var(--tone, var(--lamp)); border-color: transparent; font-size: .85rem; padding: 6px 12px; }
+  .tone-best { --tone: #f2b34b; } .tone-bittersweet { --tone: #b9a3d9; } .tone-mixed { --tone: #8fb8c9; }
+  .tone-dark { --tone: #8a877f; } .tone-worst { --tone: #e07a6a; }
+
+  #status { grid-area: status; font: .78rem/1.6 var(--mono); color: var(--dim); border-top: 1px solid var(--line); padding: 10px 0; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  #status b { color: var(--ink); font-weight: 600; }
+  form { grid-area: form; display: flex; gap: 8px; padding: 0 0 20px; }
+  #cmd { flex: 1; min-width: 0; font: 1rem var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; outline: none; }
+  #cmd:focus { border-color: var(--lamp); }
+  #go { font-size: .9rem; padding: 0 16px; color: var(--bg); background: var(--lamp); border-color: var(--lamp); }
+  #go:hover { color: var(--bg); filter: brightness(1.1); }
+  #go:disabled { opacity: .5; cursor: wait; }
+
+  aside { grid-area: side; padding: 20px 0; display: none; flex-direction: column; gap: 22px; }
+  body.map-open aside { display: flex; grid-area: log; overflow-y: auto; }
+  body.map-open #log { display: none; }
+  @media (min-width: 940px) { aside, body.map-open aside { display: flex; grid-area: side; } body.map-open #log { display: block; } }
+  aside h3 { font: .7rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; font-weight: 500; }
+  #map svg { width: 100%; height: auto; display: block; }
+  .room rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
+  .room.visited rect { fill: #1b2028; stroke: #3a414c; }
+  .room.here rect { stroke: var(--lamp); stroke-width: 2; }
+  .room text { font: 8.5px var(--mono); fill: var(--dim); text-anchor: middle; }
+  .room.visited text { fill: var(--ink); }
+  .room.here text { fill: var(--lamp); }
+  .link { stroke: #3a414c; stroke-width: 2; }
+  .link.locked { stroke-dasharray: 3 3; stroke: var(--bad); opacity: .7; }
+  .legend { font: .68rem var(--mono); color: var(--dim); margin-top: 6px; }
+  .clock { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .clock div { height: 100%; width: 0; background: linear-gradient(90deg, var(--lamp), var(--bad)); transition: width .4s; }
+  .clock-label { font: .72rem var(--mono); color: var(--dim); margin-top: 6px; }
+  #endings ul { list-style: none; margin: 0; padding: 0; font: .82rem/1.8 var(--serif); }
+  #endings li.missing { color: var(--dim); font-family: var(--mono); font-size: .75rem; }
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <h1>The Dark <span>Light</span></h1>
+  <div class="meta">
+    <span id="llm"><span class="dot"></span>narrator: checking</span>
+    <label><input type="checkbox" id="showFacts">engine facts</label>
+    <button id="mapToggle" type="button">map</button>
+    <button id="restart" type="button">new game</button>
+  </div>
+</header>
+<main id="log" aria-live="polite"></main>
+<aside>
+  <section id="map"><h3>Map</h3><div id="mapSvg"></div>
+    <div class="legend">dashed red = locked</div></section>
+  <section><h3>The ship</h3><div class="clock"><div id="clockBar"></div></div><div class="clock-label" id="clockLabel"></div></section>
+  <section id="endings"><h3>Endings found</h3><ul id="endingList"></ul></section>
+</aside>
+<div id="status"></div>
+<form id="f" autocomplete="off">
+  <input id="cmd" placeholder="What do you do?" aria-label="Command" autofocus>
+  <button id="go">Go</button>
+</form>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const log = $("#log");
+let session = null, history = [], hIdx = 0, MAP = null, ENDINGS_TOTAL = 0;
+const STORE = "darklight-endings";
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function found() { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } }
+function remember(e) { try { const f = found(); f[e.id] = e.title; localStorage.setItem(STORE, JSON.stringify(f)); } catch {} }
+
+function addEntry(you) {
+  const el = document.createElement("div");
+  el.className = "entry";
+  el.innerHTML = (you ? `<div class="you">${esc(you)}</div>` : "") + `<p class="story thinking">the narrator considers</p>`;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+function fill(el, d) {
+  const p = el.querySelector(".story");
+  p.className = "story" + (d.narrated ? "" : " plain");
+  p.textContent = d.text || "";
+  if (!d.text) p.remove();
+  let html = "";
+  if (d.intro) el.insertAdjacentHTML("afterbegin", `<p class="story intro">${esc(d.intro)}</p>`);
+  (d.beats || []).forEach(b => html += `<p class="beat">${esc(b)}</p>`);
+  if (d.director) html += `<p class="hint">${esc(d.director)}</p>`;
+  const e = d.status && d.status.ending;
+  if (e && d.ending_text) {
+    remember(e);
+    const n = Object.keys(found()).length;
+    html += `<div class="ending tone-${e.tone}"><div class="kicker">Ending · ${n} of ${ENDINGS_TOTAL} found</div>
+      <h2>${esc(e.title)}</h2><p>${esc(d.ending_text)}</p><button type="button" class="again">Play again</button></div>`;
+  }
+  const meta = [];
+  if (d.model_raw) meta.push(`model said: ${JSON.stringify(d.model_raw)}`);
+  if (d.command) meta.push(`parsed by ${d.parsed_by}: ${JSON.stringify(d.command)}`);
+  if (d.facts && d.facts.length) meta.push(d.facts.map(f => "• " + f).join("\n"));
+  meta.push(d.narrated ? "narrated by model" : "plain engine text");
+  html += `<div class="facts">${esc(meta.join("\n"))}</div>`;
+  el.insertAdjacentHTML("beforeend", html);
+  const again = el.querySelector(".again");
+  if (again) again.addEventListener("click", newGame);
+  log.scrollTop = log.scrollHeight;
+  if (d.status) render(d.status);
+}
+
+function render(s) {
+  $("#status").innerHTML = [
+    `<span><b>${esc(s.room)}</b></span>`,
+    `<span>exits: ${s.exits.join(", ")}</span>`,
+    s.items.length ? `<span>here: ${esc(s.items.join(", "))}</span>` : "",
+    `<span>carrying: ${s.inventory.length ? esc(s.inventory.join(", ")) : "nothing"}</span>`,
+    `<span>turn ${s.turns}</span>`,
+  ].join("");
+  const pct = Math.min(100, Math.round(100 * s.turns / s.deadline));
+  $("#clockBar").style.width = pct + "%";
+  const left = Math.max(0, s.deadline - s.turns);
+  $("#clockLabel").textContent = s.over ? "The night is over." : left > 20 ? "Far out to sea." : left > 10 ? "Getting closer." : left > 4 ? "Close. Very close." : "Almost on the Teeth.";
+  drawMap(s);
+  drawEndings();
+  $("#cmd").disabled = s.over; $("#go").disabled = s.over;
+  $("#cmd").placeholder = s.over ? "The story is over. Play again?" : "What do you do?";
+}
+
+function drawMap(s) {
+  if (!MAP) return;
+  const W = 76, H = 42, GX = 18, GY = 22, P = 4;
+  const cx = n => P + n.x * (W + GX) + W / 2, cy = n => P + n.y * (H + GY) + H / 2;
+  const by = Object.fromEntries(MAP.nodes.map(n => [n.id, n]));
+  const cols = Math.max(...MAP.nodes.map(n => n.x)) + 1, rows = Math.max(...MAP.nodes.map(n => n.y)) + 1;
+  const vw = cols * W + (cols - 1) * GX + 2 * P, vh = rows * H + (rows - 1) * GY + 2 * P;
+  const visited = new Set(s.visited), flags = new Set(s.flags);
+  let svg = `<svg viewBox="0 0 ${vw} ${vh}" role="img" aria-label="Island map">`;
+  for (const e of MAP.edges) {
+    const a = by[e.a], b = by[e.b];
+    const locked = e.lock && !flags.has(e.lock);
+    svg += `<line class="link${locked ? " locked" : ""}" x1="${cx(a)}" y1="${cy(a)}" x2="${cx(b)}" y2="${cy(b)}"/>`;
+  }
+  for (const n of MAP.nodes) {
+    const cls = ["room", visited.has(n.id) ? "visited" : "", n.id === s.room_id ? "here" : ""].join(" ");
+    const words = n.name.split(" "), mid = Math.ceil(words.length / 2);
+    const lines = words.length > 1 && n.name.length > 12 ? [words.slice(0, mid).join(" "), words.slice(mid).join(" ")] : [n.name];
+    const x = cx(n) - W / 2, y = cy(n) - H / 2;
+    svg += `<g class="${cls}"><rect x="${x}" y="${y}" width="${W}" height="${H}" rx="6"/>`;
+    lines.forEach((t, i) => svg += `<text x="${cx(n)}" y="${cy(n) + 3 + (i - (lines.length - 1) / 2) * 11}">${esc(t)}</text>`);
+    svg += `</g>`;
+  }
+  $("#mapSvg").innerHTML = svg + "</svg>";
+}
+
+function drawEndings() {
+  const f = found(), titles = Object.values(f);
+  let html = titles.map(t => `<li>${esc(t)}</li>`).join("");
+  for (let i = titles.length; i < ENDINGS_TOTAL; i++) html += `<li class="missing">? ? ?</li>`;
+  $("#endingList").innerHTML = html;
+}
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function newGame() {
+  log.innerHTML = "";
+  const el = addEntry(null);
+  try {
+    const d = await post("/api/new");
+    session = d.session; MAP = d.map; ENDINGS_TOTAL = d.endings_total;
+    fill(el, d);
+  } catch (e) { fill(el, { text: "Could not start the game: " + e.message }); }
+  $("#cmd").focus();
+}
+
+$("#f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const text = $("#cmd").value.trim();
+  if (!text || !session) return;
+  history.push(text); hIdx = history.length;
+  $("#cmd").value = "";
+  $("#go").disabled = true;
+  const el = addEntry(text);
+  try { fill(el, await post("/api/turn", { session, input: text })); }
+  catch (err) { fill(el, { text: err.message }); if (/session/i.test(err.message)) session = null; $("#go").disabled = false; }
+  if (!$("#cmd").disabled) { $("#go").disabled = false; $("#cmd").focus(); }
+});
+
+$("#cmd").addEventListener("keydown", e => {
+  if (e.key === "ArrowUp" && hIdx > 0) { $("#cmd").value = history[--hIdx]; e.preventDefault(); }
+  if (e.key === "ArrowDown") { hIdx = Math.min(history.length, hIdx + 1); $("#cmd").value = history[hIdx] || ""; e.preventDefault(); }
+});
+$("#restart").addEventListener("click", newGame);
+$("#mapToggle").addEventListener("click", () => document.body.classList.toggle("map-open"));
+$("#showFacts").addEventListener("change", e => document.body.classList.toggle("show-facts", e.target.checked));
+
+async function checkLLM() {
+  try {
+    const d = await (await fetch("/api/health")).json();
+    $("#llm").innerHTML = `<span class="dot ${d.llm}"></span>narrator: ${d.llm === "ready" ? esc(d.model.split("/").pop()) : "offline (plain text)"}`;
+    if (d.llm !== "ready") setTimeout(checkLLM, 5000);
+  } catch { setTimeout(checkLLM, 5000); }
+}
+checkLLM();
+newGame();
+</script>
+</body>
+</html>

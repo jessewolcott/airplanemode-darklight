@@ -1,0 +1,161 @@
+{
+  "title": "The Dark Light",
+  "intro": "You wash up on the island as the storm peaks. The lighthouse above you is dark, and somewhere out in the rain a ship is heading for the rocks they call the Teeth. Someone has to light the lamp.",
+  "start": "shore",
+  "verb_defaults": { "light": "matches", "unlock": "brass_key", "fill": "oil_can" },
+
+  "map": {
+    "lamp_room": [2, 0],
+    "cellar": [0, 1], "cottage": [1, 1], "stair": [2, 1],
+    "shore": [1, 2], "base": [2, 2]
+  },
+
+  "rooms": {
+    "shore": {
+      "name": "Rocky Shore",
+      "desc": "Waves smash against black rocks. A rowboat lies dragged above the tideline. A path leads north to a small cottage, and the dark lighthouse tower rises to the east.",
+      "exits": { "north": "cottage", "east": "base" },
+      "items": ["driftwood", "rowboat"]
+    },
+    "cottage": {
+      "name": "Keeper's Cottage",
+      "desc": "A cramped one-room cottage. The fire has burned to ash. A trapdoor in the floor leads down to a cellar; the door south leads back to the shore.",
+      "exits": { "south": "shore", "down": "cellar" },
+      "items": ["desk", "drawer", "logbook", "matches", "lantern"]
+    },
+    "cellar": {
+      "name": "Cellar",
+      "desc": "A cold stone cellar that smells of brine and lamp oil. Shelves line the walls. A ladder leads up.",
+      "dark": true,
+      "dark_desc": "Somewhere in the blackness, someone groans.",
+      "exits": { "up": "cottage" },
+      "items": ["oil_can", "shelves", "keeper"]
+    },
+    "base": {
+      "name": "Base of the Lighthouse",
+      "desc": "The tower's base is slick with spray. A heavy iron door is set into the wall, and above it the stair climbs up into the tower. The shore lies west.",
+      "exits": {
+        "west": "shore",
+        "up": { "to": "stair", "flag": "door_unlocked", "blocked": "The iron door is locked. You cannot get up into the tower." }
+      },
+      "items": ["iron_door"]
+    },
+    "stair": {
+      "name": "Spiral Stair",
+      "desc": "An iron staircase coils up through the hollow tower. The wind howls through cracks in the stone.",
+      "exits": { "down": "base", "up": "lamp_room" },
+      "items": []
+    },
+    "lamp_room": {
+      "name": "Lamp Room",
+      "desc": "The top of the tower, walled in rain-streaked glass. The great lamp stands in the middle of the room behind its huge lens. Far out at sea, a ship's light is getting closer.",
+      "exits": { "down": "stair" },
+      "items": ["great_lamp"]
+    }
+  },
+
+  "items": {
+    "driftwood": { "name": "driftwood", "aliases": ["driftwood", "wood", "stick", "bonfire"], "portable": true,
+      "desc": "A heap of pale, salt-dried driftwood. It would burn, if you lit it out here on the shore." },
+    "rowboat": { "name": "rowboat", "aliases": ["rowboat", "boat", "dinghy", "oars"], "portable": false,
+      "desc": "A small rowboat with its oars still inside. The mainland is out there somewhere. You could just leave." },
+    "desk": { "name": "desk", "aliases": ["desk", "table"], "portable": false,
+      "desc": "A scarred oak desk with a single drawer. The keeper's logbook lies open on top." },
+    "drawer": { "name": "drawer", "aliases": ["drawer", "desk drawer"], "portable": false,
+      "container": true, "contains": ["brass_key"],
+      "desc": "A shallow drawer in the desk. It is closed.",
+      "desc_open": "A shallow drawer in the desk, pulled open.",
+      "open_fact": "You slide the drawer open." },
+    "logbook": { "name": "logbook", "aliases": ["logbook", "log book", "book", "journal", "log"], "portable": false,
+      "desc": "The last entry reads: 'Oil low. Gone down to the cellar for more. Key to the tower is in my desk, as always.' The ink is fresh. Whoever wrote it never came back up." },
+    "matches": { "name": "tin of matches", "aliases": ["matches", "match", "tin", "matchbox", "tin of matches"], "portable": true,
+      "desc": "A tin of storm matches. Most of them still look dry." },
+    "lantern": { "name": "lantern", "aliases": ["lantern", "hand lantern"], "portable": true,
+      "desc": "A tin hand lantern with a little oil in it. It is not lit.",
+      "desc_flags": { "lantern_lit": "A tin hand lantern, burning with a steady warm flame." } },
+    "brass_key": { "name": "brass key", "aliases": ["key", "brass key"], "portable": true,
+      "desc": "A heavy brass key stamped with an anchor." },
+    "oil_can": { "name": "oil can", "aliases": ["oil", "oil can", "fuel"], "portable": true,
+      "desc": "A dented can, heavy with lamp oil." },
+    "shelves": { "name": "shelves", "aliases": ["shelves", "shelf"], "portable": false,
+      "desc": "Rotting wooden shelves holding rope, rusted tools and empty bottles." },
+    "keeper": { "name": "keeper", "aliases": ["keeper", "lighthouse keeper", "man", "woman", "person", "figure", "someone", "body"],
+      "portable": false, "person": true,
+      "desc": "The keeper lies at the foot of the ladder, one leg twisted beneath them, grey with cold. Their eyes flicker open in the light.",
+      "desc_flags": { "keeper_rescued": "The keeper sits by the cold hearth, wrapped in a blanket, their leg splinted with kindling." },
+      "talk": [
+        { "if": "flag:keeper_rescued", "say": "\"Don't fuss over me,\" the keeper rasps. \"Fill the lamp, light the wick. Go!\"" },
+        { "say": "\"Fell off the ladder,\" the keeper whispers. \"Key's in my desk. Oil's down here. Please don't leave me in the dark. But don't let that ship die either.\"" }
+      ] },
+    "iron_door": { "name": "iron door", "aliases": ["door", "iron door"], "portable": false,
+      "locked_flag": "door_unlocked",
+      "desc": "A rusted iron door into the tower. It is locked tight.",
+      "desc_flags": { "door_unlocked": "The iron door stands open onto the stair." } },
+    "great_lamp": { "name": "great lamp", "aliases": ["lamp", "great lamp", "lens", "wick", "beacon"], "portable": false,
+      "desc": "The great lamp sits cold behind its lens. Its oil reservoir is bone dry.",
+      "desc_flags": { "lamp_fueled": "The great lamp's reservoir is full of oil, but the wick is dark." } }
+  },
+
+  "uses": [
+    { "item": "matches", "target": "lantern", "unless": "lantern_lit", "already": "The lantern is already lit.",
+      "set": "lantern_lit", "fact": "You strike a match and the lantern flares to life, throwing warm light around you." },
+    { "item": "brass_key", "target": "iron_door", "unless": "door_unlocked", "already": "The door is already unlocked.",
+      "set": "door_unlocked", "fact": "The key grinds in the lock and the iron door groans open. The way up into the tower is clear." },
+    { "item": "oil_can", "target": "great_lamp", "unless": "lamp_fueled", "already": "The lamp is already full.",
+      "set": "lamp_fueled", "consume": true, "fact": "You pour the oil into the great lamp's reservoir until it is full. You toss the empty can aside." },
+    { "item": "matches", "target": "great_lamp", "requires": "lamp_fueled", "missing": "You strike a match, but the wick is dry. The lamp needs oil first.",
+      "set": "lamp_lit",
+      "fact": "You strike a match and touch it to the oil-soaked wick. The great lamp roars into light.",
+      "ending": [ { "if": "flag:keeper_rescued", "ending": "keeper_light" }, { "ending": "lone_light" } ] },
+    { "item": "matches", "target": "driftwood", "where": "shore",
+      "wrong_place": "A fire here would do no good. Only the shore faces the Teeth.",
+      "set": "bonfire_lit", "fact": "You heap the driftwood on the rocks and coax a match into it.",
+      "ending": "bonfire" }
+  ],
+
+  "interactions": [
+    { "verb": "help", "target": "keeper", "unless": "keeper_rescued", "already": "You've done what you can for the keeper.",
+      "set": "keeper_rescued", "cost": 4, "move": { "keeper": "cottage" }, "move_player": "cottage",
+      "fact": "It takes long minutes. You get the keeper's arm over your shoulder and haul them up the ladder into the cottage, settling them by the hearth. Precious time has slipped away." },
+    { "verb": "board", "target": "rowboat",
+      "fact": "You shove the rowboat into the surf and take up the oars.",
+      "ending": "flight" }
+  ],
+
+  "clock": {
+    "deadline": 38,
+    "deadline_ending": "wreck",
+    "beats": [
+      { "turn": 8, "fact": "Through the rain, you glimpse a ship's running lights far out to sea." },
+      { "turn": 18, "fact": "A ship's horn sounds across the water, closer now." },
+      { "turn": 27, "fact": "The ship's lights are close enough to count. It is heading straight for the Teeth." },
+      { "turn": 34, "fact": "You can hear the crew shouting over the wind. There is almost no time left." }
+    ]
+  },
+
+  "endings": {
+    "keeper_light": { "title": "The Keeper's Light", "tone": "best",
+      "text": "The beam sweeps out across the sea, and the ship heels hard away from the Teeth. At dawn the crew row ashore to give thanks, and the keeper, leg splinted, insists on shaking every hand. They tell the story for years, and you are always in it." },
+    "lone_light": { "title": "A Light Alone", "tone": "bittersweet",
+      "text": "The beam sweeps out across the sea, and the ship slides safely past the Teeth. Only when the storm blows out at dawn do you go back down to the cellar. The keeper is there, cold and barely breathing. The ship is safe. You wonder, sometimes, whether you chose right." },
+    "bonfire": { "title": "Fire on the Shore", "tone": "mixed",
+      "text": "The driftwood catches with a roar, a ragged beacon on the beach. The ship sees it and swings hard, but too late to clear the Teeth entirely. Its hull grinds and splits. Slowed enough, though: by dawn every sailor has rowed ashore to warm themselves at your fire. The ship is lost; its crew are not." },
+    "flight": { "title": "The Long Row", "tone": "dark",
+      "text": "You pull for the mainland while the dark tower shrinks into the storm behind you. Hours later, half-drowned, you reach a beach. You never learn what became of the ship, or of whoever kept that light. You never ask." },
+    "wreck": { "title": "The Teeth", "tone": "worst",
+      "text": "A sound like thunder rolls across the island: timber meeting rock. The ship has found the Teeth in the dark. When the storm finally clears, there is nothing left out there to light the way for." }
+  },
+
+  "hints": [
+    { "done": "has:matches", "hint": "The keeper must have kept matches somewhere in the cottage." },
+    { "done": "has:lantern", "hint": "There is a lantern in the cottage. It might help in dark places." },
+    { "done": "flag:lantern_lit", "hint": "An unlit lantern is no use. Try lighting it with the matches." },
+    { "done": "seen:cellar", "hint": "The logbook says the keeper went down to the cellar. Take your light." },
+    { "done": "has:brass_key|flag:door_unlocked", "hint": "The keeper's logbook mentions where the tower key is kept." },
+    { "done": "has:oil_can|flag:lamp_fueled", "hint": "The great lamp will need oil. The cellar smells of it." },
+    { "done": "flag:keeper_rescued|flag:door_unlocked", "hint": "The keeper can't climb out alone. You could help them, though it will cost time." },
+    { "done": "flag:door_unlocked", "hint": "The iron door at the base of the lighthouse needs a key." },
+    { "done": "flag:lamp_fueled", "hint": "Climb to the lamp room and fill the great lamp with oil." },
+    { "done": "flag:lamp_lit", "hint": "Light the great lamp with the matches." }
+  ]
+}

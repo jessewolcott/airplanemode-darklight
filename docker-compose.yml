@@ -1,0 +1,38 @@
+services:
+  # Tiny language model, served by llama.cpp (CPU only, ~400 MB model).
+  # Swap MODEL for any GGUF on Hugging Face, e.g.
+  #   MODEL=HuggingFaceTB/SmolLM2-360M-Instruct-GGUF:Q8_0 docker compose up
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command:
+      - "-hf"
+      - "${MODEL:-Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "-c"
+      - "4096"
+      - "-np"
+      - "2"
+    environment:
+      LLAMA_CACHE: /models
+    volumes:
+      - models:/models
+    restart: unless-stopped
+
+  # Game engine + web UI. Works (with plain text) even while the model is still downloading.
+  game:
+    build: ./game
+    environment:
+      LLM_URL: http://llm:8080
+      NARRATE: "1"
+      STUCK_TURNS: "6"
+    ports:
+      - "${PORT:-8765}:8000"
+    depends_on:
+      - llm
+    restart: unless-stopped
+
+volumes:
+  models:
