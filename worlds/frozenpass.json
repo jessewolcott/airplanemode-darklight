@@ -1,0 +1,152 @@
+{
+  "title": "The Frozen Pass",
+  "blurb": "A blizzard, a mountain hut with no fire, and a whistle blowing up on the ridge.",
+  "setting": "a mountain hut high on a pass during a blizzard",
+  "intro": "The blizzard caught you halfway up the pass. You've found the old mountain hut, but the cold is already in your bones, and somewhere up on the ridge a climber's whistle is blowing for help. Without a fire, you won't see morning.",
+  "start": "trail",
+  "verb_defaults": { "light": "matches", "unlock": "iron_key", "fill": "firewood" },
+  "tool_missing": {
+    "light": "You have nothing to light it with.",
+    "unlock": "You need a key for that.",
+    "fill": "You have nothing to put in it."
+  },
+  "ui": {
+    "clock_title": "The cold",
+    "clock_labels": [[16, "Chilled."], [9, "Shivering hard."], [4, "Numb fingers."], [0, "Freezing."]],
+    "over_label": "The night is over.",
+    "map_label": "Mountain map"
+  },
+
+  "map": {
+    "ridge": [0, 0],
+    "trail": [0, 1], "hut": [1, 1], "woodshed": [2, 1]
+  },
+
+  "rooms": {
+    "trail": {
+      "name": "Snowy Trail",
+      "desc": "Snow whips sideways across the trail. A wooden sled leans against a boulder. The mountain hut is east, and a slope of hard blue ice rises up towards the ridge.",
+      "exits": {
+        "east": "hut",
+        "up": { "to": "ridge", "flag": "steps_cut", "blocked": "The ice is too steep and smooth to climb. You slide straight back down." }
+      },
+      "items": ["sled", "ice_slope"]
+    },
+    "hut": {
+      "name": "Mountain Hut",
+      "desc": "A bare wooden hut, as cold inside as out. An iron stove squats in the corner beside a cupboard. A padlocked door leads east to the woodshed; the trail is west.",
+      "exits": {
+        "west": "trail",
+        "east": { "to": "woodshed", "flag": "shed_unlocked", "blocked": "The woodshed door is padlocked shut." }
+      },
+      "items": ["stove", "cupboard", "shed_door"]
+    },
+    "woodshed": {
+      "name": "Woodshed",
+      "desc": "A lean-to stacked with split logs. Old tools hang from nails on the wall. The hut is west.",
+      "exits": { "west": "hut" },
+      "items": ["firewood", "ice_axe"]
+    },
+    "ridge": {
+      "name": "The Ridge",
+      "desc": "A knife-edge of rock and snow, scoured by the wind. The ice steps lead back down to the trail.",
+      "exits": { "down": "trail" },
+      "items": ["climber"]
+    }
+  },
+
+  "items": {
+    "sled": { "name": "sled", "aliases": ["sled", "sledge", "toboggan"], "portable": false,
+      "desc": "A wooden sled with steel runners. The valley is a long, fast way down. You could just go." },
+    "ice_slope": { "name": "ice slope", "aliases": ["ice", "slope", "ice slope", "ice wall"], "portable": false,
+      "desc": "A slope of hard blue ice, far too smooth to climb as it is.",
+      "desc_flags": { "steps_cut": "A line of rough steps climbs the ice towards the ridge." } },
+    "stove": { "name": "iron stove", "aliases": ["stove", "iron stove", "fire"], "portable": false,
+      "desc": "A squat iron stove, stone cold and empty.",
+      "desc_flags": { "stove_loaded": "The iron stove is packed with logs, waiting for a flame." } },
+    "cupboard": { "name": "cupboard", "aliases": ["cupboard", "cabinet"], "portable": false,
+      "container": true, "contains": ["matches", "iron_key"],
+      "desc": "A narrow wooden cupboard. Its door is shut.",
+      "desc_open": "A narrow wooden cupboard, standing open.",
+      "open_fact": "The cupboard door creaks open." },
+    "matches": { "name": "box of matches", "aliases": ["matches", "match", "box", "matchbox", "box of matches"], "portable": true,
+      "desc": "A small box of matches, mercifully dry." },
+    "iron_key": { "name": "iron key", "aliases": ["key", "iron key"], "portable": true,
+      "desc": "A small iron key on a loop of string." },
+    "shed_door": { "name": "woodshed door", "aliases": ["door", "padlock", "lock", "shed door", "woodshed door"], "portable": false,
+      "locked_flag": "shed_unlocked",
+      "desc": "A plank door held shut with a rusty padlock.",
+      "desc_flags": { "shed_unlocked": "The woodshed door hangs open, its padlock dangling." } },
+    "firewood": { "name": "firewood", "aliases": ["firewood", "wood", "logs", "log"], "portable": true,
+      "desc": "An armful of split, dry logs." },
+    "ice_axe": { "name": "ice axe", "aliases": ["axe", "ice axe"], "portable": true,
+      "desc": "An old ice axe with a long steel pick. It could cut steps in ice." },
+    "climber": { "name": "climber", "aliases": ["climber", "mountaineer", "person", "figure", "someone"],
+      "portable": false, "person": true,
+      "desc": "A climber huddles in a hollow in the snow, one ankle swollen inside their boot, a whistle on a cord around their neck.",
+      "desc_flags": { "climber_rescued": "The climber sits on the floor of the hut, rubbing their hands and watching the stove." },
+      "talk": [
+        { "if": "flag:climber_rescued", "say": "\"Get that stove going,\" the climber says through chattering teeth. \"Please.\"" },
+        { "say": "\"My ankle's gone,\" the climber gasps. \"I can't get down on my own. Don't leave me up here.\"" }
+      ] }
+  },
+
+  "uses": [
+    { "item": "iron_key", "target": "shed_door", "unless": "shed_unlocked", "already": "The padlock is already open.",
+      "set": "shed_unlocked", "fact": "The key turns stiffly and the padlock falls open. The way into the woodshed is clear." },
+    { "item": "ice_axe", "target": "ice_slope", "unless": "steps_cut", "already": "The steps are already cut.",
+      "set": "steps_cut", "fact": "You swing the axe again and again, chipping a line of steps up the ice. The way up to the ridge is open." },
+    { "item": "firewood", "target": "stove", "unless": "stove_loaded", "already": "The stove is already full.",
+      "set": "stove_loaded", "consume": true, "fact": "You pack the firewood into the stove." },
+    { "item": "matches", "target": "stove", "requires": "stove_loaded", "missing": "You strike a match, but the stove is empty. It needs wood first.",
+      "set": "stove_lit", "fact": "You strike a match and hold it to the logs. A flame catches, then another, and the stove begins to roar.",
+      "ending": [ { "if": "flag:climber_rescued", "ending": "warm_together" }, { "ending": "warm_alone" } ] }
+  ],
+
+  "interactions": [
+    { "verb": "help", "target": "climber", "unless": "climber_rescued", "already": "You've already brought the climber down.",
+      "set": "climber_rescued", "cost": 3,
+      "move": { "climber": "hut" }, "move_player": "hut",
+      "fact": "It's slow, brutal work. You get the climber's arm across your shoulders and half carry, half drag them down the ice steps and into the hut." },
+    { "verb": "board", "target": "sled",
+      "fact": "You drag the sled to the edge of the trail, throw yourself onto it and push off.",
+      "ending": "downhill" }
+  ],
+
+  "clock": {
+    "deadline": 30,
+    "deadline_ending": "white_silence",
+    "beats": [
+      { "turn": 7, "fact": "Your fingers are going numb inside your gloves." },
+      { "turn": 15, "fact": "The wind finds every crack. Up on the ridge, the whistle blows weaker now." },
+      { "turn": 22, "fact": "You can't stop shivering. The whistle has gone quiet." },
+      { "turn": 27, "fact": "Your thoughts are slow and heavy. There is almost no time left." }
+    ]
+  },
+
+  "endings": {
+    "warm_together": { "title": "Two by the Stove", "tone": "best",
+      "hint": "Light the stove, with company.",
+      "text": "The stove ticks and roars, and the hut slowly fills with heat. You and the climber sit shoulder to shoulder in front of it, too tired to talk, while the blizzard screams itself out. At first light a rescue team finds the smoke from the chimney and comes up the pass to find you both alive." },
+    "warm_alone": { "title": "A Fire for One", "tone": "bittersweet",
+      "hint": "Light the stove, and think only of yourself.",
+      "text": "The stove roars and the feeling creeps back into your hands. You don't hear the whistle again. At dawn, when the snow stops, you climb the ridge and find the hollow where the climber lay. You tell the rescue team where to look." },
+    "downhill": { "title": "The Long Way Down", "tone": "dark",
+      "hint": "There's a fast way off this mountain.",
+      "text": "The sled screams down the pass through the dark, faster than you can steer. You hit a drift, roll, and keep going on foot until the lights of the valley appear. You live. Nobody ever asks you about a whistle on the ridge, and you never mention it." },
+    "white_silence": { "title": "White Silence", "tone": "worst",
+      "hint": "Wait for the cold to win.",
+      "text": "You sit down for a moment, just to rest. The cold stops hurting. The snow piles softly against the hut door, and the whistle on the ridge has long since stopped." }
+  },
+
+  "hints": [
+    { "done": "seen:hut", "hint": "The hut is just east. Get out of the wind." },
+    { "done": "has:matches|flag:stove_lit", "hint": "There might be something useful in the cupboard." },
+    { "done": "flag:shed_unlocked", "hint": "The woodshed padlock needs a key. Have you checked the cupboard?" },
+    { "done": "has:firewood|flag:stove_loaded", "hint": "The woodshed is full of logs." },
+    { "done": "flag:stove_loaded", "hint": "Put the firewood in the stove." },
+    { "done": "flag:steps_cut|flag:climber_rescued", "hint": "Someone is calling from the ridge. An ice axe could cut steps up that slope." },
+    { "done": "flag:climber_rescued", "hint": "The climber is hurt. You could help them down, though it will cost time." },
+    { "done": "flag:stove_lit", "hint": "Light the stove with the matches." }
+  ]
+}

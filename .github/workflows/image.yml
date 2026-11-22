@@ -18,8 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Engine plays every ending
-        run: python3 tests/test_endings.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tests (every ending, engine rules, server and guards)
+        run: |
+          pip install -r requirements.txt
+          python tests/test_endings.py
+          python tests/test_engine.py
+          python tests/test_app.py
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3

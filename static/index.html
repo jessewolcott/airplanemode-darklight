@@ -55,7 +55,7 @@
   .ending p { font: 1.05rem/1.6 var(--serif); margin: 0 0 14px; }
   .ending button { color: var(--bg); background: var(--tone, var(--lamp)); border-color: transparent; font-size: .85rem; padding: 6px 12px; }
   .tone-best { --tone: #f2b34b; } .tone-bittersweet { --tone: #b9a3d9; } .tone-mixed { --tone: #8fb8c9; }
-  .tone-dark { --tone: #8a877f; } .tone-worst { --tone: #e07a6a; }
+  .tone-dark { --tone: #8a877f; } .tone-worst { --tone: #e07a6a; } .tone-good { --tone: #7bc47f; }
 
   #status { grid-area: status; font: .78rem/1.6 var(--mono); color: var(--dim); border-top: 1px solid var(--line); padding: 10px 0; display: flex; flex-wrap: wrap; gap: 4px 18px; }
   #status b { color: var(--ink); font-weight: 600; }
@@ -85,17 +85,26 @@
   .clock div { height: 100%; width: 0; background: linear-gradient(90deg, var(--lamp), var(--bad)); transition: width .4s; }
   .clock-label { font: .72rem var(--mono); color: var(--dim); margin-top: 6px; }
   #endings ul { list-style: none; margin: 0; padding: 0; font: .82rem/1.8 var(--serif); }
-  #endings li.missing { color: var(--dim); font-family: var(--mono); font-size: .75rem; }
+  #endings li { display: flex; align-items: baseline; gap: 8px; }
+  #endings li::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--dim)); transform: translateY(-1px); }
+  #endings li.missing { display: block; color: var(--dim); font: .75rem/1.5 var(--mono); margin-bottom: 6px; }
+  #endings li.missing::before { display: none; }
+  #endings li.missing small { display: block; font: italic .8rem/1.4 var(--serif); opacity: .8; }
+  select { font: .75rem var(--mono); color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+  select:hover { color: var(--ink); border-color: var(--dim); }
+  .resumed { font: italic .9rem var(--serif); color: var(--dim); margin: 0 0 18px; }
 </style>
 </head>
 <body>
 <div class="app">
 <header>
-  <h1>The Dark <span>Light</span></h1>
+  <h1 id="title">The Dark <span>Light</span></h1>
   <div class="meta">
     <span id="llm"><span class="dot"></span>narrator: checking</span>
     <label><input type="checkbox" id="showFacts">engine facts</label>
+    <select id="world" aria-label="Adventure" hidden></select>
     <button id="mapToggle" type="button">map</button>
+    <button id="undo" type="button" title="Take back your last move">undo</button>
     <button id="restart" type="button">new game</button>
   </div>
 </header>
@@ -103,8 +112,8 @@
 <aside>
   <section id="map"><h3>Map</h3><div id="mapSvg"></div>
     <div class="legend">dashed red = locked</div></section>
-  <section><h3>The ship</h3><div class="clock"><div id="clockBar"></div></div><div class="clock-label" id="clockLabel"></div></section>
-  <section id="endings"><h3>Endings found</h3><ul id="endingList"></ul></section>
+  <section><h3 id="clockTitle">The ship</h3><div class="clock"><div id="clockBar"></div></div><div class="clock-label" id="clockLabel"></div></section>
+  <section id="endings"><h3 id="endingsTitle">Endings found</h3><ul id="endingList"></ul></section>
 </aside>
 <div id="status"></div>
 <form id="f" autocomplete="off">
@@ -115,12 +124,17 @@
 <script>
 const $ = s => document.querySelector(s);
 const log = $("#log");
-let session = null, history = [], hIdx = 0, MAP = null, ENDINGS_TOTAL = 0;
-const STORE = "darklight-endings";
+const MAX_LOG = 80;   // entries kept in the saved transcript
+let session = null, history = [], hIdx = 0, WORLD = null, INFO = null, busy = false;
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
-function found() { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } }
-function remember(e) { try { const f = found(); f[e.id] = e.title; localStorage.setItem(STORE, JSON.stringify(f)); } catch {} }
+// Browser storage is a per-viewer convenience: every access may throw (private mode, blocked storage).
+function load(key, dflt) { try { const v = localStorage.getItem(key); return v === null ? dflt : JSON.parse(v); } catch { return dflt; } }
+function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+function drop(key) { try { localStorage.removeItem(key); } catch {} }
+const endKey = () => `${WORLD}-endings`, saveKey = () => `${WORLD}-save`;
+function found() { return load(endKey(), {}) || {}; }
+function remember(e) { const f = found(); f[e.id] = e.title; store(endKey(), f); }
 
 function addEntry(you) {
   const el = document.createElement("div");
@@ -144,7 +158,7 @@ function fill(el, d) {
   if (e && d.ending_text) {
     remember(e);
     const n = Object.keys(found()).length;
-    html += `<div class="ending tone-${e.tone}"><div class="kicker">Ending · ${n} of ${ENDINGS_TOTAL} found</div>
+    html += `<div class="ending tone-${esc(e.tone)}"><div class="kicker">Ending · ${n} of ${INFO.endings_total} found</div>
       <h2>${esc(e.title)}</h2><p>${esc(d.ending_text)}</p><button type="button" class="again">Play again</button></div>`;
   }
   const meta = [];
@@ -154,10 +168,24 @@ function fill(el, d) {
   meta.push(d.narrated ? "narrated by model" : "plain engine text");
   html += `<div class="facts">${esc(meta.join("\n"))}</div>`;
   el.insertAdjacentHTML("beforeend", html);
-  const again = el.querySelector(".again");
-  if (again) again.addEventListener("click", newGame);
   log.scrollTop = log.scrollHeight;
   if (d.status) render(d.status);
+  if (d.save) keep(d.save);
+}
+
+// Save the game state and transcript, so a reload or a server restart doesn't lose the night.
+function keep(save) {
+  while (log.children.length > MAX_LOG) log.firstElementChild.remove();
+  store(saveKey(), { save, log: log.innerHTML });
+}
+
+function setInfo(d) {
+  INFO = d; WORLD = d.world;
+  const words = d.title.split(" "), last = words.pop();
+  $("#title").innerHTML = `${esc(words.join(" "))} <span>${esc(last)}</span>`;
+  document.title = d.title;
+  $("#clockTitle").textContent = (d.ui && d.ui.clock_title) || "Time";
+  $("#world").value = WORLD;
 }
 
 function render(s) {
@@ -168,25 +196,29 @@ function render(s) {
     `<span>carrying: ${s.inventory.length ? esc(s.inventory.join(", ")) : "nothing"}</span>`,
     `<span>turn ${s.turns}</span>`,
   ].join("");
-  const pct = Math.min(100, Math.round(100 * s.turns / s.deadline));
+  const ui = (INFO && INFO.ui) || {};
+  const pct = s.deadline ? Math.min(100, Math.round(100 * s.turns / s.deadline)) : 0;
   $("#clockBar").style.width = pct + "%";
-  const left = Math.max(0, s.deadline - s.turns);
-  $("#clockLabel").textContent = s.over ? "The night is over." : left > 20 ? "Far out to sea." : left > 10 ? "Getting closer." : left > 4 ? "Close. Very close." : "Almost on the Teeth.";
+  const left = Math.max(0, (s.deadline || 0) - s.turns);
+  const labels = ui.clock_labels || [[0, ""]];
+  $("#clockLabel").textContent = s.over ? (ui.over_label || "The story is over.")
+    : (labels.find(([min]) => left > min) || labels[labels.length - 1])[1];
   drawMap(s);
   drawEndings();
   $("#cmd").disabled = s.over; $("#go").disabled = s.over;
-  $("#cmd").placeholder = s.over ? "The story is over. Play again?" : "What do you do?";
+  $("#cmd").placeholder = s.over ? "The story is over. Play again, or undo." : "What do you do?";
 }
 
 function drawMap(s) {
-  if (!MAP) return;
+  if (!INFO) return;
+  const MAP = INFO.map;
   const W = 76, H = 42, GX = 18, GY = 22, P = 4;
   const cx = n => P + n.x * (W + GX) + W / 2, cy = n => P + n.y * (H + GY) + H / 2;
   const by = Object.fromEntries(MAP.nodes.map(n => [n.id, n]));
   const cols = Math.max(...MAP.nodes.map(n => n.x)) + 1, rows = Math.max(...MAP.nodes.map(n => n.y)) + 1;
   const vw = cols * W + (cols - 1) * GX + 2 * P, vh = rows * H + (rows - 1) * GY + 2 * P;
   const visited = new Set(s.visited), flags = new Set(s.flags);
-  let svg = `<svg viewBox="0 0 ${vw} ${vh}" role="img" aria-label="Island map">`;
+  let svg = `<svg viewBox="0 0 ${vw} ${vh}" role="img" aria-label="${esc((INFO.ui && INFO.ui.map_label) || "Map")}">`;
   for (const e of MAP.edges) {
     const a = by[e.a], b = by[e.b];
     const locked = e.lock && !flags.has(e.lock);
@@ -204,50 +236,95 @@ function drawMap(s) {
   $("#mapSvg").innerHTML = svg + "</svg>";
 }
 
+// Found endings by title; missing ones show a hint so there's always something to aim for.
 function drawEndings() {
-  const f = found(), titles = Object.values(f);
-  let html = titles.map(t => `<li>${esc(t)}</li>`).join("");
-  for (let i = titles.length; i < ENDINGS_TOTAL; i++) html += `<li class="missing">? ? ?</li>`;
-  $("#endingList").innerHTML = html;
+  if (!INFO) return;
+  const f = found();
+  const got = INFO.endings.filter(e => f[e.id]), missing = INFO.endings.filter(e => !f[e.id]);
+  $("#endingsTitle").textContent = `Endings found · ${got.length} of ${INFO.endings_total}`;
+  $("#endingList").innerHTML =
+    got.map(e => `<li class="tone-${esc(e.tone)}">${esc(e.title)}</li>`).join("") +
+    missing.map(e => `<li class="missing">? ? ?${e.hint ? `<small>${esc(e.hint)}</small>` : ""}</li>`).join("");
 }
 
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  if (!r.ok) {
+    const err = new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    err.status = r.status;
+    throw err;
+  }
   return r.json();
 }
 
 async function newGame() {
   log.innerHTML = "";
+  if (WORLD) drop(saveKey());
   const el = addEntry(null);
   try {
-    const d = await post("api/new");
-    session = d.session; MAP = d.map; ENDINGS_TOTAL = d.endings_total;
+    const d = await post("api/new", { world: WORLD });
+    session = d.session; setInfo(d);
     fill(el, d);
   } catch (e) { fill(el, { text: "Could not start the game: " + e.message }); }
   $("#cmd").focus();
 }
 
-$("#f").addEventListener("submit", async e => {
+// Ask the server for a fresh session built from the browser's save. Returns false if there's none.
+async function resume(showNote) {
+  const kept = load(saveKey(), null);
+  if (!kept || !kept.save || kept.save.ending) return false;
+  try {
+    const d = await post("api/resume", { save: kept.save });
+    session = d.session; setInfo(d);
+    if (showNote) {
+      log.innerHTML = kept.log || "";
+      log.insertAdjacentHTML("beforeend", `<p class="resumed">You pick up where you left off.</p>`);
+      log.scrollTop = log.scrollHeight;
+    }
+    render(d.status);
+    return true;
+  } catch { drop(saveKey()); return false; }
+}
+
+async function send(text, url = "api/turn") {
+  if (busy || !session) return;
+  busy = true; $("#go").disabled = true;
+  const el = addEntry(text);
+  const body = url === "api/turn" ? { session, input: text } : { session };
+  try { fill(el, await post(url, body)); }
+  catch (err) {
+    if (err.status === 404 && await resume(false)) {   // server restarted: rebuild the game and retry once
+      body.session = session;
+      try { fill(el, await post(url, body)); } catch (e2) { fill(el, { text: e2.message }); }
+    } else fill(el, { text: err.message });
+  }
+  busy = false;
+  if (!$("#cmd").disabled) { $("#go").disabled = false; $("#cmd").focus(); }
+}
+
+$("#f").addEventListener("submit", e => {
   e.preventDefault();
   const text = $("#cmd").value.trim();
-  if (!text || !session) return;
+  if (!text) return;
   history.push(text); hIdx = history.length;
   $("#cmd").value = "";
-  $("#go").disabled = true;
-  const el = addEntry(text);
-  try { fill(el, await post("api/turn", { session, input: text })); }
-  catch (err) { fill(el, { text: err.message }); if (/session/i.test(err.message)) session = null; $("#go").disabled = false; }
-  if (!$("#cmd").disabled) { $("#go").disabled = false; $("#cmd").focus(); }
+  send(text);
 });
 
 $("#cmd").addEventListener("keydown", e => {
   if (e.key === "ArrowUp" && hIdx > 0) { $("#cmd").value = history[--hIdx]; e.preventDefault(); }
   if (e.key === "ArrowDown") { hIdx = Math.min(history.length, hIdx + 1); $("#cmd").value = history[hIdx] || ""; e.preventDefault(); }
 });
+log.addEventListener("click", e => { if (e.target.closest(".again")) newGame(); });  // also works on restored transcripts
 $("#restart").addEventListener("click", newGame);
+$("#undo").addEventListener("click", () => send("undo", "api/undo"));
 $("#mapToggle").addEventListener("click", () => document.body.classList.toggle("map-open"));
 $("#showFacts").addEventListener("change", e => document.body.classList.toggle("show-facts", e.target.checked));
+$("#world").addEventListener("change", async e => {
+  WORLD = e.target.value; store("adventure", WORLD);
+  log.innerHTML = "";
+  if (!await resume(true)) newGame();
+});
 
 async function checkLLM() {
   try {
@@ -256,8 +333,20 @@ async function checkLLM() {
     if (d.llm === "offline") setTimeout(checkLLM, 5000);
   } catch { setTimeout(checkLLM, 5000); }
 }
+
+async function start() {
+  try {
+    const d = await (await fetch("api/worlds")).json();
+    const ids = d.worlds.map(w => w.id), saved = load("adventure", null);
+    WORLD = ids.includes(saved) ? saved : d.default;
+    $("#world").innerHTML = d.worlds.map(w => `<option value="${esc(w.id)}" title="${esc(w.blurb)}">${esc(w.title)}</option>`).join("");
+    $("#world").value = WORLD;
+    $("#world").hidden = d.worlds.length < 2;
+  } catch {}
+  if (!await resume(true)) newGame();
+}
 checkLLM();
-newGame();
+start();
 </script>
 </body>
 </html>

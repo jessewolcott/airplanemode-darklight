@@ -3,9 +3,13 @@
 The engine owns ALL game state and rules: the fixed map, the clock, the branching
 flags and the endings. The language model never decides what is true; it only
 (a) helps turn free text into a command and (b) rewrites the engine's facts as prose.
+
+A world is a JSON file in worlds/. validate() checks one before the server will run it.
 """
 import copy
+import json
 import re
+from pathlib import Path
 
 DIRECTIONS = ["north", "south", "east", "west", "up", "down"]
 
@@ -23,13 +27,15 @@ VERB_SYN = {
     "unlock": "unlock", "fill": "fill", "refuel": "fill",
     "talk": "talk", "speak": "talk", "ask": "talk",
     "help": "help", "rescue": "help", "save": "help",
-    "board": "board", "row": "board", "sail": "board", "flee": "board", "escape": "board",
+    "board": "board", "row": "board", "sail": "board", "flee": "board", "escape": "board", "ride": "board",
     "i": "inventory", "inv": "inventory", "inventory": "inventory",
     "hint": "hint",
 }
 STOP = {"the", "a", "an", "my", "please", "some", "then", "at", "to", "around", "this", "that", "away"}
 SPLIT = {"with", "on", "in", "into", "onto", "using"}
-FREE_VERBS = ("help", "hint", "inventory", "look")  # don't tick the clock
+FREE_VERBS = ("help", "hint", "inventory", "look", "examine")  # never tick the clock
+MULTI_VERBS = ("take", "drop", "examine")                      # "take the matches and the lantern"
+ALL_WORDS = ({"all"}, {"everything"})
 
 
 def to_dir(word):
@@ -51,9 +57,11 @@ class Game:
         self.taken = set()
         self.turns = 0
         self.since_progress = 0
+        self.timers = {}          # flag -> turns left before it runs out
         self.ending = None
         self.ending_text = None
         self.beats_now = []
+        self.said = None          # (speaker id, line) when someone spoke this turn
         self._progress = False
 
     @property
@@ -67,8 +75,16 @@ class Game:
     def name(self, iid):
         return self.items[iid]["name"]
 
+    def lit_here(self):
+        """A burning light source in your hands OR on the floor lights the room."""
+        for iid in self.inv + self.r()["items"]:
+            flag = self.items[iid].get("light_flag")
+            if flag and flag in self.flags:
+                return True
+        return False
+
     def is_dark(self):
-        return bool(self.r().get("dark")) and not ("lantern_lit" in self.flags and "lantern" in self.inv)
+        return bool(self.r().get("dark")) and not self.lit_here()
 
     def visible(self):
         room_items = [] if self.is_dark() else list(self.r()["items"])
@@ -96,8 +112,14 @@ class Game:
                 return True
         return False
 
+    def pick(self, spec, key):
+        """A plain value, or a list of {if, <key>} options checked in order. The last has no 'if'."""
+        if isinstance(spec, list):
+            return next((e[key] for e in spec if "if" not in e or self.check(e["if"])), None)
+        return spec
+
     def current_hint(self):
-        for h in self.world["hints"]:
+        for h in self.world.get("hints", []):
             if not self.check(h["done"]):
                 return h["hint"]
         return "You've done everything there is to do."
@@ -160,6 +182,33 @@ class Game:
             "ending": {"id": self.ending, "title": ending["title"], "tone": ending["tone"]} if ending else None,
         }
 
+    # ---------- state changes ----------
+    def set_flag(self, flag):
+        self.flags.add(flag)
+        timer = self.world.get("timers", {}).get(flag)
+        if timer:
+            self.timers[flag] = timer["turns"]
+
+    def renew(self, flag):
+        if flag in self.flags and flag in self.world.get("timers", {}):
+            self.timers[flag] = self.world["timers"][flag]["turns"]
+
+    def place(self, moves):
+        """Move items (or people) to rooms, wherever they are now."""
+        for iid, dest in moves.items():
+            for room in self.rooms.values():
+                if iid in room["items"]:
+                    room["items"].remove(iid)
+            if iid in self.inv:
+                self.inv.remove(iid)
+            self.rooms[dest]["items"].append(iid)
+
+    def _signature(self):
+        """Everything a turn can change. If this is unchanged, the turn was free."""
+        return (self.room, tuple(self.inv), frozenset(self.flags), self.ending,
+                tuple(tuple(r["items"]) for r in self.rooms.values()),
+                tuple(bool(it.get("open")) for it in self.items.values()))
+
     # ---------- turn ----------
     def do(self, cmd):
         verb = cmd.get("verb") or "unknown"
@@ -167,12 +216,21 @@ class Game:
         if verb == "help" and clean.get("object"):
             verb = "help_npc"
         self._progress = False
+        self.said = None
         self.beats_now, self.ending_text = [], None  # authored text, shown verbatim
-        before = self.turns
+        before, sig = self.turns, self._signature()
         if verb not in FREE_VERBS:
             self.turns += 1
         handler = getattr(self, "v_" + verb, None)
-        facts = handler(clean) if handler else ["You're not sure how to do that."]
+        objects = clean.get("objects")
+        if handler and objects and verb in MULTI_VERBS:
+            facts = []
+            for o in objects:
+                facts += handler({**clean, "object": o})
+        else:
+            facts = handler(clean) if handler else ["You're not sure how to do that."]
+        if self._signature() == sig:
+            self.turns = before  # nothing changed (a look, a failed attempt, small talk): time doesn't pass
         if not self.is_dark():
             self.seen.add(self.room)
         if not self.over:
@@ -184,20 +242,46 @@ class Game:
         return facts
 
     def tick(self, before):
-        """Advance the story clock: fixed beats at fixed times, and a deadline."""
-        clock = self.world.get("clock")
-        if not clock or self.turns == before:
+        """Advance the story clock: timers, fixed beats at fixed times, and a deadline."""
+        passed = self.turns - before
+        if passed <= 0:
             return []
-        facts = [b["fact"] for b in clock["beats"] if before < b["turn"] <= self.turns]
+        facts = self.run_timers(passed)
+        clock = self.world.get("clock")
+        if clock:
+            facts += [b["fact"] for b in clock["beats"] if before < b["turn"] <= self.turns]
         self.beats_now = list(facts)
-        if self.turns >= clock["deadline"]:
-            facts.append(self.finish(clock["deadline_ending"]))
+        if clock and self.turns >= clock["deadline"]:
+            text = self.finish(clock["deadline_ending"])
+            if text:
+                facts.append(text)
+        return facts
+
+    def run_timers(self, passed):
+        facts = []
+        specs = self.world.get("timers", {})
+        for flag, left in list(self.timers.items()):
+            if flag not in self.flags:
+                del self.timers[flag]
+                continue
+            spec, now = specs[flag], left - passed
+            if now <= 0:
+                del self.timers[flag]
+                self.flags.discard(flag)
+                if spec.get("then"):
+                    self.flags.add(spec["then"])
+                facts.append(spec["out_fact"])
+            else:
+                if spec.get("warn_fact") and left > spec.get("warn", 0) >= now:
+                    facts.append(spec["warn_fact"])
+                self.timers[flag] = now
         return facts
 
     def finish(self, spec):
         """spec is an ending id, or a list of {if, ending} checked in order."""
-        if isinstance(spec, list):
-            spec = next(e["ending"] for e in spec if "if" not in e or self.check(e["if"]))
+        spec = self.pick(spec, "ending")
+        if spec not in self.world["endings"]:
+            return None
         self.ending = spec
         self.ending_text = self.world["endings"][spec]["text"]
         return self.ending_text
@@ -211,8 +295,8 @@ class Game:
 
     def v_help(self, c):
         return ["Commands: look, go <direction>, take <thing>, drop <thing>, examine <thing>, open <thing>, "
-                "use <thing> on <thing>, light <thing>, talk to <someone>, help <someone>, inventory, hint. "
-                "Plain English usually works too. Time matters."]
+                "use <thing> on <thing>, light <thing>, talk to <someone>, help <someone>, inventory, hint, undo. "
+                "Plain English usually works too. Time matters, but looking around is free."]
 
     def v_hint(self, c):
         return [f"Hint: {self.current_hint()}"]
@@ -246,7 +330,9 @@ class Game:
         o = c.get("object")
         if self.is_dark():
             return ["It's too dark to find anything."]
-        if not o or o not in self.visible():
+        if not o:
+            return ["There's nothing here you can carry." if c.get("all") else "You don't see that here."]
+        if o not in self.visible():
             return ["You don't see that here."]
         if o in self.inv:
             return [f"You already have the {self.name(o)}."]
@@ -261,7 +347,9 @@ class Game:
 
     def v_drop(self, c):
         o = c.get("object")
-        if not o or o not in self.inv:
+        if not o:
+            return ["You aren't carrying anything." if c.get("all") else "You aren't carrying that."]
+        if o not in self.inv:
             return ["You aren't carrying that."]
         self.inv.remove(o)
         self.r()["items"].append(o)
@@ -300,11 +388,18 @@ class Game:
     def v_talk(self, c):
         o = c.get("object") or next((i for i in self.visible() if self.items[i].get("person")), None)
         if not o or o not in self.visible():
-            return ["There's no one here to talk to." if not self.is_dark() else "You call out into the dark. Someone groans in reply."]
+            if self.is_dark() and any(self.items[i].get("person") for i in self.r()["items"]):
+                return ["You call out into the dark. Someone groans in reply."]
+            return ["There's no one here to talk to."]
         lines = self.items[o].get("talk")
-        if not lines:
+        line = next((l for l in lines or [] if "if" not in l or self.check(l["if"])), None)
+        if not line:
             return [f"The {self.name(o)} has nothing to say."]
-        line = next(l for l in lines if "if" not in l or self.check(l["if"]))
+        self.said = (o, line["say"])
+        if line.get("set") and line["set"] not in self.flags:
+            self.set_flag(line["set"])
+            self.progress()
+        self.place(line.get("reveal", {}))
         return [line["say"]]
 
     def v_help_npc(self, c):
@@ -329,25 +424,25 @@ class Game:
             return [f"You can't {verb} the {self.name(o)}."]
         if rule.get("unless") and rule["unless"] in self.flags:
             return [rule.get("already", "Nothing more happens.")]
+        cost = self.pick(rule.get("cost", 0), "cost") or 0   # decide cost and text before flags change
+        fact = self.pick(rule["fact"], "fact")
         if rule.get("set"):
-            self.flags.add(rule["set"])
-        self.turns += rule.get("cost", 0)
-        for iid, dest in rule.get("move", {}).items():
-            for room in self.rooms.values():
-                if iid in room["items"]:
-                    room["items"].remove(iid)
-            self.rooms[dest]["items"].append(iid)
-        facts = [rule["fact"]]
+            self.set_flag(rule["set"])
+        self.turns += cost
+        self.place(rule.get("move", {}))
+        facts = [fact]
         if rule.get("move_player"):
             self.room = rule["move_player"]
             self.visited.add(self.room)
             facts += self.room_facts()
         if rule.get("ending"):
-            facts.append(self.finish(rule["ending"]))
+            text = self.finish(rule["ending"])
+            if text:
+                facts.append(text)
         self.progress()
         return facts
 
-    # light / unlock / fill are shortcuts that become "use"
+    # light / unlock / fill are shortcuts that become "use" with the world's default tool
     def _shortcut(self, c, verb):
         c = dict(c)
         default = self.world["verb_defaults"][verb]
@@ -356,6 +451,11 @@ class Game:
             c["object"] = default
         else:
             c["object"] = c.get("object") or default
+        if c["object"] == default and default not in self.visible():
+            t = c.get("target")
+            if t and t not in self.visible():
+                return ["You don't see that here."]
+            return [self.world.get("tool_missing", {}).get(verb) or f"You have nothing to {verb} it with."]
         return self.v_use(c)
 
     def v_light(self, c):
@@ -378,6 +478,8 @@ class Game:
         rules = [u for u in self.world["uses"] if u["item"] == o]
         if t is None:  # infer the target if exactly one rule fits what's here
             here = [u for u in rules if u["target"] in self.visible()]
+            if len(here) > 1:  # "use oil" in the lamp room means the lamp, not the lantern you're holding
+                here = [u for u in here if u["target"] not in self.inv] or here
             if len(here) == 1:
                 t = here[0]["target"]
             else:
@@ -393,19 +495,92 @@ class Game:
             return [rule.get("already", "Nothing more happens.")]
         if rule.get("requires") and rule["requires"] not in self.flags:
             return [rule.get("missing", "Nothing happens.")]
-        self.flags.add(rule["set"])
+        refused = next((r["say"] for r in rule.get("refuse", []) if self.check(r["if"])), None)
+        if refused:
+            return [refused]
+        fact = self.pick(rule["fact"], "fact")
+        if rule.get("clear"):
+            self.flags.discard(rule["clear"])
+            self.timers.pop(rule["clear"], None)
+        if rule.get("set"):
+            self.set_flag(rule["set"])
+        if rule.get("renew"):
+            self.renew(rule["renew"])
         if rule.get("consume"):
             self.inv.remove(o)
         self.progress()
-        facts = [rule["fact"]]
+        facts = [fact]
         if rule.get("ending"):
-            facts.append(self.finish(rule["ending"]))
+            text = self.finish(rule["ending"])
+            if text:
+                facts.append(text)
         return facts
+
+    # ---------- save / restore ----------
+    def snapshot(self):
+        """Plain-JSON copy of everything that changes during play."""
+        return {
+            "world": self.world["id"], "room": self.room, "inv": list(self.inv),
+            "flags": sorted(self.flags), "visited": sorted(self.visited), "seen": sorted(self.seen),
+            "taken": sorted(self.taken), "turns": self.turns, "since_progress": self.since_progress,
+            "timers": dict(self.timers), "ending": self.ending,
+            "rooms": {rid: list(r["items"]) for rid, r in self.rooms.items()},
+            "open": sorted(i for i, it in self.items.items() if it.get("open")),
+            "contains": {i: list(it.get("contains", [])) for i, it in self.items.items() if it.get("container")},
+        }
+
+    @classmethod
+    def restore(cls, world, s):
+        """Rebuild a game from snapshot(). Saves come from the browser, so check everything."""
+        g = cls(world)
+        rooms, items = set(g.rooms), set(g.items)
+
+        def need(ok):
+            if not ok:
+                raise ValueError("this save doesn't match the world")
+
+        def ids(xs, valid):
+            need(isinstance(xs, list) and len(xs) <= 500 and all(isinstance(x, str) and x in valid for x in xs))
+            return list(xs)
+
+        def num(x):
+            need(isinstance(x, int) and 0 <= x <= 100000)
+            return x
+
+        try:
+            need(isinstance(s, dict) and s.get("world") == world["id"] and s.get("room") in rooms)
+            g.room = s["room"]
+            g.inv = ids(s["inv"], items)
+            flags = s["flags"]
+            need(isinstance(flags, list) and len(flags) <= 200
+                 and all(isinstance(f, str) and 0 < len(f) <= 64 for f in flags))
+            g.flags = set(flags)
+            g.visited, g.seen = set(ids(s["visited"], rooms)), set(ids(s["seen"], rooms))
+            g.taken = set(ids(s["taken"], items))
+            g.turns, g.since_progress = num(s["turns"]), num(s["since_progress"])
+            timers = s.get("timers", {})
+            need(isinstance(timers, dict) and all(k in world.get("timers", {}) for k in timers))
+            g.timers = {k: num(v) for k, v in timers.items()}
+            need(s.get("ending") is None or s["ending"] in world["endings"])
+            g.ending = s.get("ending")
+            need(isinstance(s["rooms"], dict))
+            for rid, its in s["rooms"].items():
+                need(rid in rooms)
+                g.rooms[rid]["items"] = ids(its, items)
+            for iid in ids(s["open"], items):
+                g.items[iid]["open"] = True
+            need(isinstance(s["contains"], dict))
+            for iid, inside in s["contains"].items():
+                need(iid in items)
+                g.items[iid]["contains"] = ids(inside, items)
+        except (KeyError, TypeError, AttributeError) as e:
+            raise ValueError("this save is damaged") from e
+        return g
 
 
 def parse_rule(text, game):
     """Fast, exact parser for normal adventure-game phrasing. Returns None if unsure."""
-    words = [w for w in re.findall(r"[a-z]+", text.lower()) if w not in STOP]
+    words = [w for w in re.findall(r"[a-z]+", text.lower().replace(",", " and ")) if w not in STOP]
     if not words:
         return None
     if len(words) == 1 and to_dir(words[0]):
@@ -435,6 +610,16 @@ def parse_rule(text, game):
         return None
     if verb == "take" and rest and rest[0] == "up":
         rest = rest[1:]
+    if verb in ("take", "drop") and set(rest) in ALL_WORDS:
+        if verb == "take":
+            objs = [i for i in game.visible() if game.items[i].get("portable") and i not in game.inv]
+        else:
+            objs = list(game.inv)
+        return {"verb": verb, "objects": objs, "all": True} if objs else {"verb": verb, "object": None, "all": True}
+    if verb in MULTI_VERBS and "and" in rest:
+        objs = split_objects(rest, game)
+        if objs and len(objs) > 1:
+            return {"verb": verb, "objects": objs}
     if verb in ("take", "drop", "examine", "open"):
         obj = game.resolve(rest)
         return {"verb": verb, "object": obj} if obj else None
@@ -457,3 +642,161 @@ def parse_rule(text, game):
             return None
         return {"verb": "use" if b else verb, "object": b, "target": a}
     return None
+
+
+def split_objects(words, game):
+    """'matches and lantern' -> [matches, lantern]. None if any part doesn't resolve.
+    'block and tackle' resolves to one item twice, so it stays a single object."""
+    parts, cur = [], []
+    for w in words:
+        if w == "and":
+            parts.append(cur)
+            cur = []
+        else:
+            cur.append(w)
+    parts.append(cur)
+    objs = []
+    for p in parts:
+        o = game.resolve(p) if p else None
+        if not o:
+            return None
+        if o not in objs:
+            objs.append(o)
+    return objs
+
+
+# ---------- worlds ----------
+CONDITIONS = ("has", "flag", "seen")
+
+
+def validate(world):
+    """Return a list of problems with a world file (empty = good). Catches typo'd ids and
+    missing fallbacks before a player can hit them."""
+    errs = []
+
+    def need(ok, msg):
+        if not ok:
+            errs.append(msg)
+
+    for key in ("id", "title", "intro", "start", "map", "rooms", "items", "uses", "endings", "verb_defaults"):
+        need(key in world, f"missing top-level '{key}'")
+    if errs:
+        return errs
+    rooms, items, endings = world["rooms"], world["items"], world["endings"]
+
+    def cond(c, where):
+        for part in str(c).split("|"):
+            kind, _, val = part.partition(":")
+            if kind not in CONDITIONS:
+                errs.append(f"{where}: unknown condition '{part}' (use has:, flag: or seen:)")
+            elif kind == "has":
+                need(val in items, f"{where}: has:{val} names an unknown item")
+            elif kind == "seen":
+                need(val in rooms, f"{where}: seen:{val} names an unknown room")
+            else:
+                need(bool(val), f"{where}: empty flag name")
+
+    def choice(spec, key, where, check):
+        if isinstance(spec, list):
+            need(bool(spec) and "if" not in spec[-1], f"{where}: the last {key} option must have no 'if' (it's the fallback)")
+            for e in spec:
+                if "if" in e:
+                    cond(e["if"], where)
+                need(key in e, f"{where}: an option is missing '{key}'")
+                check(e.get(key))
+        else:
+            check(spec)
+
+    def ending(spec, where):
+        choice(spec, "ending", where, lambda v: need(v in endings, f"{where}: unknown ending '{v}'"))
+
+    def text(spec, where):
+        choice(spec, "fact", where, lambda v: need(isinstance(v, str) and v, f"{where}: fact must be text"))
+
+    need(world["start"] in rooms, f"start room '{world['start']}' doesn't exist")
+    for rid, r in rooms.items():
+        need(rid in world["map"], f"room '{rid}' has no map position")
+        need("name" in r and "desc" in r, f"room '{rid}' needs a name and desc")
+        for d, ex in r.get("exits", {}).items():
+            need(d in DIRECTIONS, f"room '{rid}': '{d}' isn't a direction")
+            dest = ex.get("to") if isinstance(ex, dict) else ex
+            need(dest in rooms, f"room '{rid}': exit {d} leads to unknown room '{dest}'")
+            if isinstance(ex, dict) and ex.get("flag"):
+                need("blocked" in ex, f"room '{rid}': locked exit {d} needs a 'blocked' message")
+        for i in r.get("items", []):
+            need(i in items, f"room '{rid}' holds unknown item '{i}'")
+    for rid in world["map"]:
+        need(rid in rooms, f"map position for unknown room '{rid}'")
+
+    for iid, it in items.items():
+        for k in ("name", "aliases", "desc"):
+            need(k in it, f"item '{iid}' is missing '{k}'")
+        for i in it.get("contains", []):
+            need(i in items, f"item '{iid}' contains unknown item '{i}'")
+        lines = it.get("talk")
+        if lines is not None:
+            need(bool(lines) and "if" not in lines[-1], f"item '{iid}': the last talk line must have no 'if'")
+            for line in lines:
+                need("say" in line, f"item '{iid}': a talk line is missing 'say'")
+                if "if" in line:
+                    cond(line["if"], f"item '{iid}' talk")
+                for i, dest in line.get("reveal", {}).items():
+                    need(i in items and dest in rooms, f"item '{iid}' talk reveals '{i}' into '{dest}'")
+
+    for verb in ("light", "unlock", "fill"):
+        need(world["verb_defaults"].get(verb) in items, f"verb_defaults.{verb} must name an item")
+
+    for u in world["uses"]:
+        where = f"use {u.get('item')} on {u.get('target')}"
+        need(u.get("item") in items and u.get("target") in items, f"{where}: unknown item")
+        need("fact" in u, f"{where}: missing 'fact'")
+        text(u.get("fact"), where)
+        if "where" in u:
+            need(u["where"] in rooms, f"{where}: unknown room '{u['where']}'")
+        if "ending" in u:
+            ending(u["ending"], where)
+        for r in u.get("refuse", []):
+            need("if" in r and "say" in r, f"{where}: refuse entries need 'if' and 'say'")
+            cond(r.get("if", ""), where)
+
+    for x in world.get("interactions", []):
+        where = f"{x.get('verb')} {x.get('target')}"
+        need(x.get("verb") in ("help", "board"), f"{where}: interaction verb must be help or board")
+        need(x.get("target") in items, f"{where}: unknown target")
+        need("fact" in x, f"{where}: missing 'fact'")
+        text(x.get("fact"), where)
+        choice(x.get("cost", 0), "cost", where, lambda v: need(isinstance(v, int) and v >= 0, f"{where}: bad cost"))
+        for i, dest in x.get("move", {}).items():
+            need(i in items and dest in rooms, f"{where}: moves '{i}' into '{dest}'")
+        if "move_player" in x:
+            need(x["move_player"] in rooms, f"{where}: unknown room '{x['move_player']}'")
+        if "ending" in x:
+            ending(x["ending"], where)
+
+    clock = world.get("clock")
+    if clock:
+        need(isinstance(clock.get("deadline"), int), "clock needs a numeric deadline")
+        need(clock.get("deadline_ending") in endings, "clock.deadline_ending names an unknown ending")
+    for h in world.get("hints", []):
+        cond(h.get("done", ""), "hint")
+    for flag, t in world.get("timers", {}).items():
+        need(isinstance(t.get("turns"), int) and "out_fact" in t, f"timer '{flag}' needs turns and out_fact")
+    for eid, e in endings.items():
+        for k in ("title", "text", "tone"):
+            need(k in e, f"ending '{eid}' is missing '{k}'")
+    return errs
+
+
+def load_worlds(folder):
+    """Every worlds/*.json, keyed by filename. Raises if any of them has problems."""
+    worlds = {}
+    for path in sorted(Path(folder).glob("*.json")):
+        world = json.loads(path.read_text(encoding="utf-8"))
+        world["id"] = path.stem
+        errs = validate(world)
+        if errs:
+            raise ValueError(f"{path.name} has problems:\n  " + "\n  ".join(errs))
+        worlds[path.stem] = world
+    if not worlds:
+        raise ValueError(f"no worlds found in {folder}")
+    return worlds
