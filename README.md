@@ -57,7 +57,7 @@ docker compose up -d --build        # first run downloads the model (~400 MB) ->
 ```
 
 Use a different port with `PORT=9000`, or a different model with any GGUF on Hugging Face, for
-example `MODEL=Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M`.
+example `MODEL=unsloth/gemma-4-E2B-it-GGUF:Q4_K_M`.
 
 **Tests** (CI runs all of these):
 
