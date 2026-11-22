@@ -107,7 +107,7 @@ def get_session(sid):
 
 # ---------------- LLM helpers ----------------
 async def chat(messages, max_tokens, temperature, schema=None):
-    if not LLM_URL:  # no model on this box (e.g. the GL.iNet profile): callers fall back to plain text
+    if not LLM_URL:  # no model configured (standalone runs without one): callers fall back to plain text
         raise RuntimeError("no LLM configured")
     body = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature,
             "repeat_penalty": 1.15, "cache_prompt": True}

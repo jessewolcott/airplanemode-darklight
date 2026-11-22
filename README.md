@@ -45,8 +45,9 @@ and you can add games without a new image.
 ## Running it
 
 **On the box:** the platform repo runs the released image at `/darklight/` and connects it to
-the shared model. On the GL.iNet profile there is no model. A keyword parser still understands
-plain English, and narration is the engine's own text.
+the shared model. It isn't installed on the GL.iNet profile, which has no model. Whenever the
+model is busy, loading or down, a keyword parser still understands plain English, and
+narration is the engine's own text.
 
 **On its own, for development:** `compose.yaml` runs the game with its own 0.5B model, the
 author report at `/author`, and a `./games` folder for trying new worlds without rebuilding.
