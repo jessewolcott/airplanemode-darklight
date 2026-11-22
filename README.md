@@ -1,8 +1,18 @@
+<p align="center"><img src="docs/icon.svg" width="96" alt="The Dark Light icon"></p>
+
 # The Dark Light: a tiny-LM text adventure engine
 
 An [AirplaneMode](https://github.com/jessewolcott/airplanemode) app. It's a text-adventure
 engine that plays in the browser. A small language model (served by llama.cpp) helps understand
 players and narrate, and a deterministic engine keeps the game honest.
+
+<p align="center">
+  <img src="docs/screenshots/start.png" width="230" alt="The opening: washed up below a dark lighthouse">
+  <img src="docs/screenshots/playing.png" width="230" alt="Playing: free-text commands, narrated by the on-board model">
+  <img src="docs/screenshots/map.png" width="230" alt="The map and the endings found so far">
+</p>
+
+<sub>Screenshots from the laptop dev stack; not yet tested on real hardware.</sub>
 
 Games are data files. The engine, server, page, parser, narrator, solver and author tools are
 shared, so **a new game is one JSON file** in `worlds/`. Three ship with it:
