@@ -1,0 +1,5 @@
+{
+  "json.schemas": [
+    { "fileMatch": ["/worlds/*.json", "/templates/*.json"], "url": "./schemas/world.schema.json" }
+  ]
+}

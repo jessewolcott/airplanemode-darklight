@@ -1,0 +1,173 @@
+{
+  "title": "The Fog Bell",
+  "blurb": "Fog on the marsh, children lost on the causeway, and a chapel bell with no rope.",
+  "setting": "a marsh village in thick fog, with the tide coming in",
+  "theme": { "accent": "#9fc2a6" },
+  "intro": "Fog has come in off the marsh, thick as wool. Three children went out along the causeway to gather eggs this afternoon, and they haven't come back. The tide is turning. The old chapel bell could guide them home, if anyone could still ring it.",
+  "start": "green",
+  "verb_defaults": { "light": "lantern", "unlock": "ladder", "fill": "rope" },
+  "tool_missing": { "light": "You have nothing to light it with.", "unlock": "You'd need something to reach it with." },
+  "verbs": {
+    "ring": ["toll", "sound", "clang"],
+    "shout": ["call", "yell", "holler", "cry"],
+    "wade": ["venture", "plunge"]
+  },
+  "ui": {
+    "clock_title": "The tide",
+    "clock_labels": [[16, "The tide is turning."], [8, "Water on the causeway."], [3, "The causeway is going under."], [0, "Under water."]],
+    "over_label": "The tide is in.",
+    "map_label": "Village map",
+    "ambience": "wind"
+  },
+
+  "map": {
+    "belfry": [1, 0],
+    "vestry": [2, 1], "chapel": [1, 1],
+    "green": [1, 2], "causeway": [2, 2]
+  },
+
+  "rooms": {
+    "green": {
+      "name": "Village Green",
+      "aliases": ["village", "green", "square"],
+      "desc": "Grey shapes of cottages stand around the green, half swallowed by fog. An old well sits in the middle. The chapel is north; east, the causeway runs out into the marsh.",
+      "exits": { "north": "chapel", "east": "causeway" },
+      "items": ["sexton", "well", "lantern"]
+    },
+    "chapel": {
+      "name": "Chapel",
+      "aliases": ["church", "nave"],
+      "desc": "A small stone chapel, cold and smelling of damp hymn books. High in the ceiling, a wooden hatch leads up to the belfry. A door east opens into the vestry; the green is south.",
+      "exits": {
+        "south": "green",
+        "east": "vestry",
+        "up": { "to": "belfry", "flag": "hatch_reached", "blocked": "The belfry hatch is far above your head. You can't reach it." }
+      },
+      "items": ["hatch", "pews"]
+    },
+    "vestry": {
+      "name": "Vestry",
+      "aliases": ["side room", "store room"],
+      "desc": "A cramped vestry full of folded cloths and broken candlesticks. A long wooden ladder leans in the corner beside an old chest. The chapel is west.",
+      "exits": { "west": "chapel" },
+      "items": ["ladder", "chest"]
+    },
+    "belfry": {
+      "name": "Belfry",
+      "aliases": ["tower", "bell tower"],
+      "desc": "The top of the tower, open to the fog on all four sides. The great bronze bell hangs from its beam, its rope rotted away to a stub. The hatch leads back down.",
+      "exits": { "down": "chapel" },
+      "items": ["bell"]
+    },
+    "causeway": {
+      "name": "The Causeway",
+      "aliases": ["marsh", "path"],
+      "desc": "A raised path of packed stones running out into the marsh. After a few yards it disappears into white fog. Water laps at the stones on both sides. The green is west.",
+      "exits": { "west": "green" },
+      "items": ["fog"]
+    }
+  },
+
+  "items": {
+    "sexton": { "name": "sexton", "aliases": ["sexton", "old sexton", "old man", "old woman", "person", "someone"],
+      "portable": false, "person": true,
+      "desc": "The old sexton leans on a stick by the well, staring at the fog. Too frail now to climb a ladder.",
+      "talk": [
+        { "if": "flag:bell_roped", "say": "\"Go on, then,\" the sexton says. \"Ring it like you mean it.\"" },
+        { "say": "\"I'd ring it myself if my knees would let me,\" the sexton says. \"The old rope rotted years back. There's a new one {rope_spot}. And you'll want the long ladder from the vestry to reach the hatch.\"",
+          "set": "knows_rope" }
+      ] },
+    "well": { "name": "well", "aliases": ["well"], "portable": false, "container": true, "contains": [],
+      "desc": "An old stone well with a wooden lid.",
+      "desc_open": "An old stone well, its lid pushed aside. A bucket hangs on a hook inside.",
+      "open_fact": "You push the heavy lid aside." },
+    "lantern": { "name": "storm lantern", "aliases": ["lantern", "storm lantern"], "portable": true,
+      "desc": "A storm lantern hanging on a post. It's already lit, for what good it does in this fog." },
+    "hatch": { "name": "hatch", "aliases": ["hatch", "trapdoor", "ceiling"], "portable": false,
+      "desc": "A square wooden hatch high in the ceiling, much too high to reach.",
+      "desc_flags": { "hatch_reached": "The ladder stands propped against the wall beneath the open hatch." } },
+    "pews": { "name": "pews", "aliases": ["pews", "pew", "benches"], "portable": false,
+      "desc": "Rows of worn wooden pews. Nothing under them but dust and a lost glove." },
+    "ladder": { "name": "ladder", "aliases": ["ladder", "long ladder"], "portable": true,
+      "desc": "A long, heavy wooden ladder. It would reach the ceiling." },
+    "chest": { "name": "chest", "aliases": ["chest", "vestry chest"], "portable": false, "container": true,
+      "contains": ["rope"],
+      "desc": "An old oak chest with iron corners. The lid is shut.",
+      "desc_open": "An old oak chest, its lid thrown back.",
+      "open_fact": "The lid creaks open." },
+    "rope": { "name": "coil of rope", "aliases": ["rope", "coil", "bell rope", "coil of rope"], "portable": true,
+      "desc": "A long coil of new hemp rope, stiff and pale." },
+    "bell": { "name": "bell", "aliases": ["bell", "bronze bell", "great bell"], "portable": false,
+      "desc": "The great bronze bell, green with age. Without a rope you'd never swing it.",
+      "desc_flags": { "bell_roped": "The great bronze bell, with your new rope knotted to its wheel." } },
+    "fog": { "name": "fog", "aliases": ["fog", "mist", "children", "kids"], "portable": false,
+      "desc": "White fog, so thick you can't see the end of your arm. Somewhere out there, the children are lost." }
+  },
+
+  "variants": [
+    { "id": "rope_spot", "item": "rope", "options": [
+      { "at": "chest", "text": "in the chest in the vestry" },
+      { "at": "well", "text": "hanging in the well, out of the damp" }
+    ] }
+  ],
+
+  "uses": [
+    { "item": "ladder", "target": "hatch", "unless": "hatch_reached", "already": "The ladder's already in place.",
+      "set": "hatch_reached", "consume": true,
+      "fact": "You wrestle the long ladder upright and lean it against the wall. Its top just reaches the hatch." },
+    { "item": "rope", "target": "bell", "unless": "bell_roped", "already": "The rope is already tied on.",
+      "set": "bell_roped", "consume": true,
+      "fact": "You knot the new rope to the bell's wheel and drop the loose end down through the hatch." },
+    { "item": "lantern", "target": "fog", "unless": "tried_lantern", "already": "The fog swallows the light again.",
+      "set": "tried_lantern", "fact": "You hold the lantern high. The fog swallows its light a yard away." }
+  ],
+
+  "interactions": [
+    { "verb": "shout", "target": "fog", "unless": "children_heard", "already": "They've heard you. Now give them something to follow.",
+      "set": "children_heard",
+      "fact": "You shout into the fog until your throat hurts. Far off, small voices answer, scattered and frightened. They're out there, but they don't know which way is home." },
+    { "verb": "ring", "target": "bell", "requires": "bell_roped",
+      "missing": "You slap the bell with your palm. It barely hums. It needs a rope to swing it.",
+      "fact": "You haul on the rope. The great bell swings, and its voice rolls out over the marsh, again and again.",
+      "ending": [ { "if": "flag:children_heard", "ending": "all_home" }, { "ending": "two_home" } ] },
+    { "verb": "wade", "target": "fog", "cost": 2,
+      "fact": "You step off the causeway into the cold water and push out into the fog, calling as you go.",
+      "ending": "one_hand" }
+  ],
+
+  "clock": {
+    "deadline": 26,
+    "deadline_ending": "tide",
+    "beats": [
+      { "turn": 6, "fact": "Somewhere out on the marsh, a gull cries. Or a child." },
+      { "turn": 13, "fact": "The tide has turned. You can hear water sucking at the causeway stones." },
+      { "turn": 19, "fact": "Water is running across the low end of the causeway now." },
+      { "turn": 23, "fact": "The causeway is almost under. There's no time left." }
+    ]
+  },
+
+  "endings": {
+    "all_home": { "title": "Home by the Bell", "tone": "best",
+      "hint": "Let them know to listen, then give them something to listen for.",
+      "text": "The bell tolls on and on. Out in the fog, three small voices stop calling and start listening, and then, one by one, three small shapes come stumbling up the causeway, wet to the knees, following the sound. The sexton counts them twice, just to be sure." },
+    "two_home": { "title": "The Bell in the Fog", "tone": "bittersweet",
+      "hint": "Ring the bell, even if no one knows to listen for it.",
+      "text": "The bell rolls out over the marsh. After a long while two of the children come in, following the sound. The third had wandered too far to hear it over the wind. Boats go out at first light, and find them cold and frightened on a hummock of grass, but alive." },
+    "one_hand": { "title": "One Small Hand", "tone": "mixed",
+      "hint": "Go out into the fog yourself.",
+      "text": "You wade and call until a small cold hand finds yours in the white. You bring that one child home, soaked and shaking. The other two spend the night out on the marsh. They come home in the morning, but nobody in the village ever forgets the night the bell stayed silent." },
+    "tide": { "title": "The Tide Comes In", "tone": "worst",
+      "hint": "Wait too long.",
+      "text": "The water closes over the causeway stones with a soft, final sound. The fog doesn't lift until morning. The boats go out at first light, and the whole village goes with them." }
+  },
+
+  "hints": [
+    { "done": "flag:knows_rope|has:rope|flag:bell_roped", "hint": "The old sexton by the well knows this chapel better than anyone. Talk to them." },
+    { "done": "has:ladder|flag:hatch_reached", "hint": "There's a long ladder in the vestry." },
+    { "done": "flag:hatch_reached", "hint": "The ladder would reach the belfry hatch in the chapel ceiling." },
+    { "done": "has:rope|flag:bell_roped", "hint": "The bell needs a new rope. The sexton said where one is kept." },
+    { "done": "flag:children_heard", "hint": "The children are out on the causeway. Let them know someone's coming: shout to them." },
+    { "done": "flag:bell_roped", "hint": "Climb to the belfry and tie the rope to the bell." },
+    { "done": "flag:bell_rang", "hint": "Ring the bell." }
+  ]
+}

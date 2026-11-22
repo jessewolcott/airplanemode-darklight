@@ -1,17 +1,23 @@
 # AirplaneMode app manifest. See the platform repo: docs/app-contract.md
 id: darklight
 name: The Dark Light
-description: Text adventures narrated by the on-board model. A storm, a dark lighthouse, a ship heading for the rocks (seven endings), plus a short mountain story.
+description: Text adventures narrated by the on-board model, alone or as a party from everyone's phones. A dark lighthouse, a frozen mountain pass and a fog-bound marsh.
 image: ghcr.io/jessewolcott/airplanemode-darklight
 port: 8000
 path: /darklight/
 memory: 256m          # tested peak is well under this
 needs:
-  llm: optional       # without it, narration falls back to the engine's plain text
+  llm: optional       # without it, a keyword parser understands plain English and narration is the engine's own text
+volume: optional      # mount one small named volume at /data and set DATA_DIR=/data to keep the leaderboard and save codes
 env:
   LLM_URL: URL of the shared model (OpenAI-compatible chat API). Empty = no model.
   NARRATE: "1 to narrate story beats with the model, 0 to always use plain text."
   STUCK_TURNS: Turns without progress before a hint appears (default 6).
   WORLD: Adventure that opens first, a file name in worlds/ without .json (default darklight).
+  GAMES: Comma-separated adventure ids to offer (default all of them).
+  WORLDS_DIR: Extra folder of world files to load, so new games can be added without a new image.
+  DATA_DIR: Where the leaderboard and save codes are kept (one small JSON file each). Empty = memory only.
+  PARTY_SECONDS: Length of a party-mode voting round (default 20).
+  AUTHOR_TOOLS: "1 to serve the /author solver report. Leave off on the box."
   SESSION_TTL: Seconds a game can sit idle before the server forgets it (default 7200). The browser keeps a save and resumes.
   MAX_SESSIONS: Most games held in memory at once; the least recently played go first (default 500).

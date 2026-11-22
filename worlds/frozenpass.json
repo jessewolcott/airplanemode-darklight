@@ -2,6 +2,7 @@
   "title": "The Frozen Pass",
   "blurb": "A blizzard, a mountain hut with no fire, and a whistle blowing up on the ridge.",
   "setting": "a mountain hut high on a pass during a blizzard",
+  "theme": { "accent": "#8fc7e8" },
   "intro": "The blizzard caught you halfway up the pass. You've found the old mountain hut, but the cold is already in your bones, and somewhere up on the ridge a climber's whistle is blowing for help. Without a fire, you won't see morning.",
   "start": "trail",
   "verb_defaults": { "light": "matches", "unlock": "iron_key", "fill": "firewood" },
@@ -14,7 +15,8 @@
     "clock_title": "The cold",
     "clock_labels": [[16, "Chilled."], [9, "Shivering hard."], [4, "Numb fingers."], [0, "Freezing."]],
     "over_label": "The night is over.",
-    "map_label": "Mountain map"
+    "map_label": "Mountain map",
+    "ambience": "wind"
   },
 
   "map": {
@@ -25,6 +27,7 @@
   "rooms": {
     "trail": {
       "name": "Snowy Trail",
+      "aliases": ["path", "outside"],
       "desc": "Snow whips sideways across the trail. A wooden sled leans against a boulder. The mountain hut is east, and a slope of hard blue ice rises up towards the ridge.",
       "exits": {
         "east": "hut",
@@ -34,6 +37,7 @@
     },
     "hut": {
       "name": "Mountain Hut",
+      "aliases": ["cabin", "inside"],
       "desc": "A bare wooden hut, as cold inside as out. An iron stove squats in the corner beside a cupboard. A padlocked door leads east to the woodshed; the trail is west.",
       "exits": {
         "west": "trail",
@@ -43,6 +47,7 @@
     },
     "woodshed": {
       "name": "Woodshed",
+      "aliases": ["shed"],
       "desc": "A lean-to stacked with split logs. Old tools hang from nails on the wall. The hut is west.",
       "exits": { "west": "hut" },
       "items": ["firewood", "ice_axe"]
@@ -73,7 +78,7 @@
       "desc": "A small box of matches, mercifully dry." },
     "iron_key": { "name": "iron key", "aliases": ["key", "iron key"], "portable": true,
       "desc": "A small iron key on a loop of string." },
-    "shed_door": { "name": "woodshed door", "aliases": ["door", "padlock", "lock", "shed door", "woodshed door"], "portable": false,
+    "shed_door": { "name": "woodshed door", "aliases": ["door", "padlock", "lock", "shed", "shed door", "woodshed door"], "portable": false,
       "locked_flag": "shed_unlocked",
       "desc": "A plank door held shut with a rusty padlock.",
       "desc_flags": { "shed_unlocked": "The woodshed door hangs open, its padlock dangling." } },

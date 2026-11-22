@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World Report</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230d0f12%22/%3E%3Cpath d=%22M12 26h8l-1-12h-6z%22 fill=%22%238a877f%22/%3E%3Ccircle cx=%2216%22 cy=%2210%22 r=%225%22 fill=%22%23f2b34b%22/%3E%3C/svg%3E">
+<style>
+  :root { --bg: #0d0f12; --panel: #14171c; --line: #252a32; --ink: #d9d4c7; --dim: #8a877f; --lamp: #f2b34b; --bad: #e07a6a; --good: #7bc47f;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace; --serif: Georgia, serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: .9rem/1.5 var(--mono); }
+  main { max-width: 1060px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  h1 { font: 600 1.3rem var(--serif); margin: 0; }
+  select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; }
+  h2 { font: .75rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; font-weight: 500; }
+  pre { margin: 0; white-space: pre-wrap; font: .8rem/1.5 var(--mono); }
+  .ok { color: var(--good); } .bad { color: var(--bad); }
+  table { border-collapse: collapse; width: 100%; font-size: .8rem; }
+  td, th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 500; }
+  .room rect { fill: #1b2028; stroke: #3a414c; } .room text { font: 8.5px var(--mono); fill: var(--ink); text-anchor: middle; }
+  .link { stroke: #3a414c; stroke-width: 2; } .link.locked { stroke: var(--bad); stroke-dasharray: 3 3; }
+  svg { max-width: 420px; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<main>
+  <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap"><h1>World report</h1><select id="world"></select>
+    <span style="color:var(--dim)">The solver plays every possible game. Run <code>python cli.py solve</code> for the same report in a terminal.</span></div>
+  <div id="out" class="card">Loading…</div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function map(m) {
+  const W = 76, H = 42, GX = 18, GY = 22, P = 4;
+  const cx = n => P + n.x * (W + GX) + W / 2, cy = n => P + n.y * (H + GY) + H / 2;
+  const by = Object.fromEntries(m.nodes.map(n => [n.id, n]));
+  const cols = Math.max(...m.nodes.map(n => n.x)) + 1, rows = Math.max(...m.nodes.map(n => n.y)) + 1;
+  let svg = `<svg viewBox="0 0 ${cols * W + (cols - 1) * GX + 2 * P} ${rows * H + (rows - 1) * GY + 2 * P}">`;
+  for (const e of m.edges) svg += `<line class="link${e.lock ? " locked" : ""}" x1="${cx(by[e.a])}" y1="${cy(by[e.a])}" x2="${cx(by[e.b])}" y2="${cy(by[e.b])}"/>`;
+  for (const n of m.nodes) svg += `<g class="room"><rect x="${cx(n) - W / 2}" y="${cy(n) - H / 2}" width="${W}" height="${H}" rx="6"/><text x="${cx(n)}" y="${cy(n) + 3}">${esc(n.name.length > 14 ? n.name.slice(0, 13) + "…" : n.name)}</text></g>`;
+  return svg + "</svg>";
+}
+async function show(world) {
+  $("#out").textContent = "Solving… (a few seconds)";
+  const r = await fetch(`api/author/${encodeURIComponent(world)}`);
+  const d = await r.json();
+  if (!r.ok) { $("#out").textContent = d.detail || r.statusText; return; }
+  let html = `<h2>Map</h2>${map(d.map)}<h2 style="margin-top:16px">Problems</h2>` +
+    (d.problems.length ? `<ul class="bad">${d.problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="ok">None. Every ending is reachable in time, with no dead ends.</p>`);
+  for (const rep of d.reports) {
+    html += `<h2 style="margin-top:16px">Layout ${esc(JSON.stringify(rep.choices))} · ${rep.states} positions · deadline ${rep.deadline}</h2>
+      <table><tr><th>Ending</th><th>Fastest</th><th>Route</th></tr>` +
+      Object.entries(rep.endings).sort((a, b) => a[1].turns - b[1].turns).map(([e, i]) =>
+        `<tr><td>${esc(e)}</td><td class="${i.in_time ? "" : "bad"}">${i.turns}</td><td>${esc(i.route.join(", "))}</td></tr>`).join("") + `</table>`;
+    const closes = Object.entries(rep.closes);
+    if (closes.length) html += `<p>Moves that close off an ending: ${closes.map(([m, es]) => `<b>${esc(m)}</b> → ${esc(es.join(", "))}`).join("; ")}</p>`;
+    if (rep.trap_count) html += `<p>Traps (only bad endings left): ${rep.trap_count}, e.g. after ${esc(rep.traps[0].route.join(", "))}</p>`;
+  }
+  $("#out").innerHTML = html;
+}
+(async () => {
+  const d = await (await fetch("api/worlds")).json();
+  $("#world").innerHTML = d.worlds.map(w => `<option value="${esc(w.id)}">${esc(w.title)}</option>`).join("");
+  $("#world").addEventListener("change", e => show(e.target.value));
+  show(d.default);
+})();
+</script>
+</body>
+</html>

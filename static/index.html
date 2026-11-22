@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Dark Light</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230d0f12%22/%3E%3Cpath d=%22M12 26h8l-1-12h-6z%22 fill=%22%238a877f%22/%3E%3Ccircle cx=%2216%22 cy=%2210%22 r=%225%22 fill=%22%23f2b34b%22/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #0d0f12; --panel: #14171c; --line: #252a32;
@@ -92,6 +93,17 @@
   #endings li.missing small { display: block; font: italic .8rem/1.4 var(--serif); opacity: .8; }
   select { font: .75rem var(--mono); color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
   select:hover { color: var(--ink); border-color: var(--dim); }
+  .opts { display: grid; gap: 8px; font: .75rem var(--mono); color: var(--dim); }
+  .opts input[type=text] { font: .8rem var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; width: 100%; }
+  .opts .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .opts .note { font-size: .7rem; opacity: .8; }
+  #board ol { margin: 0; padding-left: 18px; font: .8rem/1.7 var(--serif); }
+  #board .tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+  #board .tabs button.on { color: var(--ink); border-color: var(--dim); }
+  #partyPanel .code { font: 600 1.6rem var(--mono); letter-spacing: .2em; color: var(--lamp); }
+  #partyPanel ul { list-style: none; margin: 6px 0 0; padding: 0; font: .82rem/1.6 var(--serif); }
+  #partyPanel li b { font-family: var(--mono); color: var(--lamp); margin-right: 6px; }
+  .by { font: .7rem var(--mono); color: var(--dim); }
   .resumed { font: italic .9rem var(--serif); color: var(--dim); margin: 0 0 18px; }
 </style>
 </head>
@@ -114,6 +126,22 @@
     <div class="legend">dashed red = locked</div></section>
   <section><h3 id="clockTitle">The ship</h3><div class="clock"><div id="clockBar"></div></div><div class="clock-label" id="clockLabel"></div></section>
   <section id="endings"><h3 id="endingsTitle">Endings found</h3><ul id="endingList"></ul></section>
+  <section id="partyPanel" hidden><h3>Party</h3>
+    <div class="code" id="partyCode"></div>
+    <div class="opts"><span>On a phone on this Wi-Fi, open <b id="partyUrl"></b> and enter the code.</span>
+      <span id="partyRound"></span></div>
+    <ul id="partyProposals"></ul></section>
+  <section id="board"><h3>Leaderboard</h3>
+    <div class="tabs"><button type="button" data-mode="relaxed">relaxed</button><button type="button" data-mode="normal" class="on">normal</button><button type="button" data-mode="hard">hard</button></div>
+    <ol id="boardList"></ol><div class="opts note" id="boardNote"></div></section>
+  <section><h3>Options</h3><div class="opts">
+    <label class="row" style="border:0;padding:0">Name <input type="text" id="playerName" maxlength="20" placeholder="for the leaderboard"></label>
+    <div class="row">Difficulty <select id="mode"></select></div>
+    <div class="row"><label><input type="checkbox" id="speak">read aloud</label><label><input type="checkbox" id="ambience">sound</label></div>
+    <div class="row"><button type="button" id="saveCode">get save code</button><button type="button" id="loadCode">load code</button></div>
+    <div class="note" id="codeNote"></div>
+    <div class="row"><button type="button" id="partyStart">start party mode</button></div>
+  </div></section>
 </aside>
 <div id="status"></div>
 <form id="f" autocomplete="off">
@@ -125,7 +153,8 @@
 const $ = s => document.querySelector(s);
 const log = $("#log");
 const MAX_LOG = 80;   // entries kept in the saved transcript
-let session = null, history = [], hIdx = 0, WORLD = null, INFO = null, busy = false;
+let session = null, history = [], hIdx = 0, WORLD = null, INFO = null, busy = false, MODE = "normal";
+let party = null, partySince = 0, partyTimer = null, boardMode = "normal";
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 // Browser storage is a per-viewer convenience: every access may throw (private mode, blocked storage).
@@ -171,6 +200,67 @@ function fill(el, d) {
   log.scrollTop = log.scrollHeight;
   if (d.status) render(d.status);
   if (d.save) keep(d.save);
+  say([d.text, ...(d.beats || []), d.director, d.ending_text]);
+  if (e && d.ending_text) drawBoard();
+}
+
+// ---- read aloud (the browser's own voices, so it works offline) ----
+function say(parts) {
+  if (!$("#speak").checked || !("speechSynthesis" in window)) return;
+  const text = parts.filter(Boolean).join(" ");
+  if (!text) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 0.95; speechSynthesis.speak(u); } catch {}
+}
+
+// ---- ambient sound: generated noise, no audio files ----
+let audio = null;
+function startAmbience(kind) {
+  stopAmbience();
+  if (!kind || kind === "none") return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = ctx.sampleRate * 4, buf = ctx.createBuffer(1, len, ctx.sampleRate), data = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; data[i] = last * 3.5; }  // brown noise
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const filter = ctx.createBiquadFilter(); filter.type = "lowpass"; filter.frequency.value = kind === "wind" ? 500 : 900;
+    const gain = ctx.createGain(); gain.gain.value = 0.25;
+    const lfo = ctx.createOscillator(), depth = ctx.createGain();   // slow swells, like gusts or waves
+    lfo.frequency.value = kind === "wind" ? 0.13 : 0.08; depth.gain.value = 0.15;
+    lfo.connect(depth).connect(gain.gain);
+    src.connect(filter).connect(gain).connect(ctx.destination);
+    src.start(); lfo.start();
+    audio = { ctx };
+    if (kind === "storm") rumble(ctx);
+  } catch { audio = null; }
+}
+function rumble(ctx) {   // distant thunder now and then
+  const t = setTimeout(() => {
+    if (!audio || audio.ctx !== ctx) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "sawtooth"; o.frequency.value = 38 + Math.random() * 20;
+    const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 120;
+    g.gain.setValueAtTime(0, ctx.currentTime); g.gain.linearRampToValueAtTime(0.35, ctx.currentTime + 0.4);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.5);
+    o.connect(f).connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 3.6);
+    rumble(ctx);
+  }, 12000 + Math.random() * 25000);
+  audio && (audio.timer = t);
+}
+function stopAmbience() { if (audio) { clearTimeout(audio.timer); try { audio.ctx.close(); } catch {} audio = null; } }
+
+// ---- leaderboard ----
+async function drawBoard() {
+  if (!WORLD) return;
+  try {
+    const d = await (await fetch(`api/leaderboard?world=${encodeURIComponent(WORLD)}`)).json();
+    const rows = (d.fastest && d.fastest[boardMode]) || [];
+    $("#boardList").innerHTML = rows.length ? rows.map(r => `<li>${esc(r.name)} <span class="by">${r.turns} turns</span></li>`).join("")
+      : `<li class="by" style="list-style:none;margin-left:-18px">No one has reached the best ending on ${esc(boardMode)} yet.</li>`;
+    const c = (d.collectors || []).slice(0, 3).map(r => `${esc(r.name)} (${r.endings})`).join(", ");
+    $("#boardNote").innerHTML = (c ? `Most endings: ${c}. ` : "") + ($("#playerName").value ? "" : "Set a name to appear here.")
+      + (d.persistent ? "" : " Scores reset when the app restarts.");
+  } catch {}
 }
 
 // Save the game state and transcript, so a reload or a server restart doesn't lose the night.
@@ -181,6 +271,12 @@ function keep(save) {
 
 function setInfo(d) {
   INFO = d; WORLD = d.world;
+  const accent = d.theme && d.theme.accent;
+  document.documentElement.style.setProperty("--lamp", accent || "#f2b34b");
+  if (d.modes) $("#mode").innerHTML = d.modes.map(m => `<option value="${esc(m.id)}" title="${esc(m.label)}">${esc(m.id)}</option>`).join("");
+  if (d.status && d.status.mode) { MODE = d.status.mode; $("#mode").value = MODE; }
+  if ($("#ambience").checked) startAmbience(d.ui && d.ui.ambience);
+  drawBoard();
   const words = d.title.split(" "), last = words.pop();
   $("#title").innerHTML = `${esc(words.join(" "))} <span>${esc(last)}</span>`;
   document.title = d.title;
@@ -262,7 +358,7 @@ async function newGame() {
   if (WORLD) drop(saveKey());
   const el = addEntry(null);
   try {
-    const d = await post("api/new", { world: WORLD });
+    const d = await post("api/new", { world: WORLD, mode: MODE, name: $("#playerName").value || null });
     session = d.session; setInfo(d);
     fill(el, d);
   } catch (e) { fill(el, { text: "Could not start the game: " + e.message }); }
@@ -274,7 +370,7 @@ async function resume(showNote) {
   const kept = load(saveKey(), null);
   if (!kept || !kept.save || kept.save.ending) return false;
   try {
-    const d = await post("api/resume", { save: kept.save });
+    const d = await post("api/resume", { save: kept.save, name: $("#playerName").value || null });
     session = d.session; setInfo(d);
     if (showNote) {
       log.innerHTML = kept.log || "";
@@ -326,6 +422,79 @@ $("#world").addEventListener("change", async e => {
   if (!await resume(true)) newGame();
 });
 
+$("#mode").addEventListener("change", e => { MODE = e.target.value; store("mode", MODE); newGame(); });
+$("#playerName").addEventListener("change", async e => {
+  store("name", e.target.value);
+  if (session) try { await post("api/name", { session, name: e.target.value }); } catch {}
+  drawBoard();
+});
+$("#speak").addEventListener("change", e => { store("speak", e.target.checked); if (!e.target.checked && "speechSynthesis" in window) speechSynthesis.cancel(); });
+$("#ambience").addEventListener("change", e => { store("ambience", e.target.checked); e.target.checked ? startAmbience(INFO && INFO.ui && INFO.ui.ambience) : stopAmbience(); });
+document.querySelectorAll("#board .tabs button").forEach(b => b.addEventListener("click", () => {
+  boardMode = b.dataset.mode;
+  document.querySelectorAll("#board .tabs button").forEach(x => x.classList.toggle("on", x === b));
+  drawBoard();
+}));
+$("#saveCode").addEventListener("click", async () => {
+  if (!session) return;
+  try {
+    const d = await post("api/savecode", { session });
+    $("#codeNote").textContent = `Your code: ${d.code}. Load it on any device on this box` + (d.persistent ? " (it lasts 30 days)." : " until the app restarts.");
+  } catch (e) { $("#codeNote").textContent = e.message; }
+});
+$("#loadCode").addEventListener("click", async () => {
+  const code = (prompt("Save code:") || "").trim();
+  if (!code) return;
+  try {
+    const r = await fetch(`api/savecode/${encodeURIComponent(code)}?name=${encodeURIComponent($("#playerName").value || "")}`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    WORLD = d.world; store("adventure", WORLD); $("#world").value = WORLD;
+    session = d.session; setInfo(d);
+    log.innerHTML = "";
+    const el = addEntry(null);
+    fill(el, { ...d, text: "You pick up a saved game. " + d.text });
+    $("#codeNote").textContent = "";
+  } catch (e) { $("#codeNote").textContent = e.message; }
+});
+
+// ---- party mode (host side): show the code, the ideas coming in, and play the winners here ----
+$("#partyStart").addEventListener("click", async () => {
+  if (!session) return;
+  if (party) { stopParty(); return; }
+  try {
+    const d = await post("api/party", { session });
+    party = d.code; partySince = 0;
+    $("#partyPanel").hidden = false;
+    $("#partyCode").textContent = party;
+    $("#partyUrl").textContent = new URL("party", location.href).href;
+    $("#partyStart").textContent = "end party mode";
+    pollParty();
+  } catch (e) { $("#codeNote").textContent = e.message; }
+});
+function stopParty() {
+  party = null; clearTimeout(partyTimer);
+  $("#partyPanel").hidden = true; $("#partyStart").textContent = "start party mode";
+}
+async function pollParty() {
+  if (!party) return;
+  try {
+    const r = await fetch(`api/party/${party}?since=${partySince}`);
+    if (!r.ok) { stopParty(); return; }
+    const d = await r.json();
+    for (const entry of d.log) {
+      partySince = entry.n;
+      const el = addEntry(`${entry.said}`);
+      el.querySelector(".you").insertAdjacentHTML("beforeend", ` <span class="by">(${esc(entry.by)})</span>`);
+      fill(el, { text: entry.text, beats: entry.beats, ending_text: entry.ending, status: entry.status, narrated: true });
+    }
+    $("#partyRound").textContent = `${d.players} player${d.players === 1 ? "" : "s"}` +
+      (d.ends_in != null ? ` · round ${d.round} ends in ${Math.ceil(d.ends_in)}s` : " · waiting for ideas");
+    $("#partyProposals").innerHTML = d.proposals.map(p => `<li><b>${p.votes}</b>${esc(p.text)} <span class="by">${esc(p.by)}</span></li>`).join("");
+  } catch {}
+  partyTimer = setTimeout(pollParty, 1500);
+}
+
 async function checkLLM() {
   try {
     const d = await (await fetch("api/health")).json();
@@ -335,6 +504,10 @@ async function checkLLM() {
 }
 
 async function start() {
+  $("#playerName").value = load("name", "") || "";
+  MODE = load("mode", "normal") || "normal";
+  $("#speak").checked = !!load("speak", false);
+  $("#ambience").checked = !!load("ambience", false);
   try {
     const d = await (await fetch("api/worlds")).json();
     const ids = d.worlds.map(w => w.id), saved = load("adventure", null);

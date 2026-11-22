@@ -8,6 +8,7 @@ A world is a JSON file in worlds/. validate() checks one before the server will 
 """
 import copy
 import json
+import random
 import re
 from pathlib import Path
 
@@ -38,15 +39,86 @@ MULTI_VERBS = ("take", "drop", "examine")                      # "take the match
 ALL_WORDS = ({"all"}, {"everything"})
 
 
+BUILTIN_VERBS = {"look", "go", "take", "drop", "examine", "open", "use", "light", "unlock", "fill",
+                 "talk", "help", "board", "inventory", "hint", "unknown"}
+# Difficulty applies to every world. A world can override any of these in "modes".
+MODES = {
+    "relaxed": {"deadline": 1.5, "timers": False, "hints": True, "label": "Relaxed: more time, no burning out"},
+    "normal": {"deadline": 1.0, "timers": True, "hints": True, "label": "Normal"},
+    "hard": {"deadline": 0.85, "timers": True, "hints": False, "label": "Hard: less time, no hints"},
+}
+
+
 def to_dir(word):
     if word in DIRECTIONS:
         return word
     return DIR_SYN.get(word)
 
 
+def modes_for(world):
+    return {m: {**spec, **world.get("modes", {}).get(m, {})} for m, spec in MODES.items()}
+
+
+def pick_choices(world, seed=None):
+    """Which option each variant uses. No seed = the authored layout (every first option)."""
+    rng = random.Random(seed) if seed is not None else None
+    return {v["id"]: (rng.choice(v["options"]) if rng else v["options"][0])["at"] for v in world.get("variants", [])}
+
+
+def _fill(obj, subs):
+    if isinstance(obj, str):
+        for k, v in subs.items():
+            obj = obj.replace("{" + k + "}", v)
+        return obj
+    if isinstance(obj, list):
+        return [_fill(x, subs) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _fill(v, subs) for k, v in obj.items()}
+    return obj
+
+
+def make_instance(world, choices=None, mode="normal"):
+    """The world as this particular game plays it: variant items placed, {placeholders} filled
+    in, and the difficulty applied. The authored file is never changed."""
+    choices = choices if choices is not None else pick_choices(world)
+    subs = {}
+    inst = copy.deepcopy(world)
+    for v in world.get("variants", []):
+        opt = next(o for o in v["options"] if o["at"] == choices[v["id"]])
+        iid, at = v["item"], opt["at"]
+        for r in inst["rooms"].values():
+            if iid in r["items"]:
+                r["items"].remove(iid)
+        for it in inst["items"].values():
+            if iid in it.get("contains", []):
+                it["contains"].remove(iid)
+        if at in inst["rooms"]:
+            inst["rooms"][at]["items"].append(iid)
+        else:
+            inst["items"][at].setdefault("contains", []).append(iid)
+        subs[v["id"]] = opt.get("text", "")
+    if subs:
+        inst = _fill(inst, subs)
+    spec = modes_for(world)[mode]
+    clock = inst.get("clock")
+    if clock and spec["deadline"] != 1.0:
+        scale = spec["deadline"]
+        clock["deadline"] = max(1, round(clock["deadline"] * scale))
+        for b in clock["beats"]:
+            b["turn"] = max(1, min(clock["deadline"] - 1, round(b["turn"] * scale)))
+    if not spec["timers"]:
+        inst["timers"] = {}
+    inst["_mode"], inst["_choices"] = mode, dict(choices)
+    return inst
+
+
 class Game:
-    def __init__(self, world):
-        self.world = world
+    def __init__(self, world, choices=None, mode="normal"):
+        self.base = world                      # the authored world, as loaded
+        self.mode = mode if mode in MODES else "normal"
+        world = make_instance(world, choices, self.mode)
+        self.world = world                     # this game's copy: variants placed, difficulty applied
+        self.choices = world["_choices"]
         self.rooms = copy.deepcopy(world["rooms"])
         self.items = copy.deepcopy(world["items"])
         self.room = world["start"]
@@ -179,8 +251,29 @@ class Game:
             "deadline": clock.get("deadline"),
             "flags": sorted(self.flags),
             "over": self.over,
+            "mode": self.mode,
             "ending": {"id": self.ending, "title": ending["title"], "tone": ending["tone"]} if ending else None,
         }
+
+    def verb_words(self):
+        """Built-in verb words plus the ones this world adds ("push": ["shove", "press"])."""
+        words = dict(VERB_SYN)
+        for verb, syns in self.world.get("verbs", {}).items():
+            for w in [verb] + list(syns):
+                words[w] = verb
+        return words
+
+    def clone(self):
+        """A cheap copy for the solver: only the parts a turn can change are copied."""
+        g = Game.__new__(Game)
+        g.__dict__.update(self.__dict__)
+        g.rooms = {rid: {**r, "items": list(r["items"])} for rid, r in self.rooms.items()}
+        g.items = {iid: ({**it, "contains": list(it["contains"])} if "contains" in it else dict(it))
+                   for iid, it in self.items.items()}
+        g.inv, g.flags, g.visited = list(self.inv), set(self.flags), set(self.visited)
+        g.seen, g.taken, g.timers = set(self.seen), set(self.taken), dict(self.timers)
+        g.beats_now = []
+        return g
 
     # ---------- state changes ----------
     def set_flag(self, flag):
@@ -222,6 +315,8 @@ class Game:
         if verb not in FREE_VERBS:
             self.turns += 1
         handler = getattr(self, "v_" + verb, None)
+        if handler is None and verb in self.world.get("verbs", {}):
+            handler = lambda c, v=verb: self.interact(v, c.get("object"))  # noqa: E731  a world's own verb
         objects = clean.get("objects")
         if handler and objects and verb in MULTI_VERBS:
             facts = []
@@ -298,7 +393,12 @@ class Game:
                 "use <thing> on <thing>, light <thing>, talk to <someone>, help <someone>, inventory, hint, undo. "
                 "Plain English usually works too. Time matters, but looking around is free."]
 
+    def hints_on(self):
+        return modes_for(self.base)[self.mode]["hints"]
+
     def v_hint(self, c):
+        if not self.hints_on():
+            return ["No hints in hard mode. You're on your own."]
         return [f"Hint: {self.current_hint()}"]
 
     def v_look(self, c):
@@ -424,6 +524,8 @@ class Game:
             return [f"You can't {verb} the {self.name(o)}."]
         if rule.get("unless") and rule["unless"] in self.flags:
             return [rule.get("already", "Nothing more happens.")]
+        if rule.get("requires") and rule["requires"] not in self.flags:
+            return [rule.get("missing", "Nothing happens.")]
         cost = self.pick(rule.get("cost", 0), "cost") or 0   # decide cost and text before flags change
         fact = self.pick(rule["fact"], "fact")
         if rule.get("set"):
@@ -520,7 +622,8 @@ class Game:
     def snapshot(self):
         """Plain-JSON copy of everything that changes during play."""
         return {
-            "world": self.world["id"], "room": self.room, "inv": list(self.inv),
+            "world": self.world["id"], "mode": self.mode, "choices": dict(self.choices),
+            "room": self.room, "inv": list(self.inv),
             "flags": sorted(self.flags), "visited": sorted(self.visited), "seen": sorted(self.seen),
             "taken": sorted(self.taken), "turns": self.turns, "since_progress": self.since_progress,
             "timers": dict(self.timers), "ending": self.ending,
@@ -532,12 +635,20 @@ class Game:
     @classmethod
     def restore(cls, world, s):
         """Rebuild a game from snapshot(). Saves come from the browser, so check everything."""
-        g = cls(world)
-        rooms, items = set(g.rooms), set(g.items)
-
         def need(ok):
             if not ok:
                 raise ValueError("this save doesn't match the world")
+
+        need(isinstance(s, dict))
+        mode = s.get("mode", "normal")
+        need(mode in MODES)
+        variants = {v["id"]: {o["at"] for o in v["options"]} for v in world.get("variants", [])}
+        choices = s.get("choices") or None
+        if choices is not None:
+            need(isinstance(choices, dict) and set(choices) == set(variants)
+                 and all(choices[k] in variants[k] for k in variants))
+        g = cls(world, choices, mode)
+        rooms, items = set(g.rooms), set(g.items)
 
         def ids(xs, valid):
             need(isinstance(xs, list) and len(xs) <= 500 and all(isinstance(x, str) and x in valid for x in xs))
@@ -559,7 +670,7 @@ class Game:
             g.taken = set(ids(s["taken"], items))
             g.turns, g.since_progress = num(s["turns"]), num(s["since_progress"])
             timers = s.get("timers", {})
-            need(isinstance(timers, dict) and all(k in world.get("timers", {}) for k in timers))
+            need(isinstance(timers, dict) and all(k in g.world.get("timers", {}) for k in timers))
             g.timers = {k: num(v) for k, v in timers.items()}
             need(s.get("ending") is None or s["ending"] in world["endings"])
             g.ending = s.get("ending")
@@ -585,14 +696,21 @@ def parse_rule(text, game):
         return None
     if len(words) == 1 and to_dir(words[0]):
         return {"verb": "go", "direction": to_dir(words[0])}
-    verb = VERB_SYN.get(words[0])
+    verb = game.verb_words().get(words[0])
     rest = words[1:]
     if verb is None:
         return None
+    if verb in game.world.get("verbs", {}):  # a world's own verb: "push the lever", "pray"
+        obj = game.resolve(rest)
+        if rest and not obj:
+            return None
+        return {"verb": verb, "object": obj}
     if verb == "look":
         if not rest:
             return {"verb": "look"}
         verb = "examine"
+    if verb == "inventory" and rest:
+        return None  # "i need a hint" isn't the inventory
     if verb in ("inventory", "hint"):
         return {"verb": verb}
     if verb in ("help", "talk", "board"):
@@ -620,9 +738,22 @@ def parse_rule(text, game):
         objs = split_objects(rest, game)
         if objs and len(objs) > 1:
             return {"verb": verb, "objects": objs}
+    if verb == "open" and any(w in SPLIT for w in rest):  # "open the door with the key" = unlock it
+        at = next(i for i, w in enumerate(rest) if w in SPLIT)
+        a, b = game.resolve(rest[:at]), game.resolve(rest[at + 1:])
+        if a and b:
+            return {"verb": "use", "object": b, "target": a}
     if verb in ("take", "drop", "examine", "open"):
         obj = game.resolve(rest)
-        return {"verb": verb, "object": obj} if obj else None
+        if not obj:
+            return None
+        it = game.items[obj]
+        if verb == "take" and it.get("person"):
+            return {"verb": "help", "object": obj}  # "get the keeper out of here"
+        if verb == "take" and not it.get("portable") and any(
+                x["target"] == obj for x in game.world.get("interactions", [])):
+            return None  # "get in the boat" isn't picking it up; let the smarter layers decide
+        return {"verb": verb, "object": obj}
 
     # two-noun verbs: split around a preposition
     split_at = next((i for i, w in enumerate(rest) if w in SPLIT), None)
@@ -630,10 +761,14 @@ def parse_rule(text, game):
     after = [] if split_at is None else rest[split_at + 1:]
     a, b = game.resolve(before), game.resolve(after)
     if verb == "use":
-        if not a:
-            return None
+        if not a or game.items[a].get("person"):
+            return None  # "use the pulley to lift the keeper" is about the keeper, not using them
         return {"verb": "use", "object": a, "target": b}
     if verb == "light":  # light X [with Y]
+        tool = game.world["verb_defaults"]["light"]
+        if a == tool:  # "strike a match and light the lantern": the thing to light isn't the matches
+            parts = {p for al in game.items[tool]["aliases"] for p in al.split()}
+            a = game.resolve([w for w in before if w not in parts]) or a
         if not a:
             return None
         return {"verb": "light", "object": a}
@@ -759,9 +894,37 @@ def validate(world):
             need("if" in r and "say" in r, f"{where}: refuse entries need 'if' and 'say'")
             cond(r.get("if", ""), where)
 
+    own_verbs = world.get("verbs", {})
+    for verb, syns in own_verbs.items():
+        need(re.fullmatch(r"[a-z]+", verb) is not None and verb not in BUILTIN_VERBS,
+             f"verbs: '{verb}' must be one lowercase word that isn't a built-in verb")
+        need(isinstance(syns, list) and all(isinstance(s, str) and re.fullmatch(r"[a-z]+", s) for s in syns),
+             f"verbs: synonyms of '{verb}' must be a list of single lowercase words")
+        need(any(x.get("verb") == verb for x in world.get("interactions", [])),
+             f"verbs: '{verb}' has no interactions, so it would never do anything")
+    for v in world.get("variants", []):
+        where = f"variant '{v.get('id')}'"
+        need(isinstance(v.get("id"), str) and v.get("item") in items, f"{where}: needs an id and a known item")
+        opts = v.get("options", [])
+        need(len(opts) >= 2, f"{where}: needs at least two options")
+        for o in opts:
+            at = o.get("at")
+            need(at in rooms or (at in items and items[at].get("container")),
+                 f"{where}: option '{at}' must be a room or a container item")
+    for key, val in world.get("theme", {}).items():
+        need(isinstance(val, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", val) is not None,
+             f"theme.{key} must be a colour like #f2b34b")
+    for m, spec in world.get("modes", {}).items():
+        need(m in MODES, f"modes: unknown mode '{m}' (use {', '.join(MODES)})")
+        need(set(spec) <= {"deadline", "timers", "hints", "label"}, f"modes.{m}: unknown setting")
+    placeholders = set(re.findall(r"\{([a-z_]+)\}", json.dumps(world)))
+    need(placeholders <= {v.get("id") for v in world.get("variants", [])},
+         f"text uses placeholders with no variant: {', '.join(sorted(placeholders - {v.get('id') for v in world.get('variants', [])}))}")
+
     for x in world.get("interactions", []):
         where = f"{x.get('verb')} {x.get('target')}"
-        need(x.get("verb") in ("help", "board"), f"{where}: interaction verb must be help or board")
+        need(x.get("verb") in ("help", "board") or x.get("verb") in own_verbs,
+             f"{where}: interaction verb must be help, board, or one of the world's own verbs")
         need(x.get("target") in items, f"{where}: unknown target")
         need("fact" in x, f"{where}: missing 'fact'")
         text(x.get("fact"), where)
@@ -787,16 +950,26 @@ def validate(world):
     return errs
 
 
-def load_worlds(folder):
-    """Every worlds/*.json, keyed by filename. Raises if any of them has problems."""
+def load_world(path):
+    """One world file, with its id (the file name). Raises with every problem listed."""
+    path = Path(path)
+    world = json.loads(path.read_text(encoding="utf-8"))
+    world["id"] = path.stem
+    errs = validate(world)
+    if errs:
+        raise ValueError(f"{path.name} has problems:\n  " + "\n  ".join(errs))
+    return world
+
+
+def load_worlds(*folders, only=None):
+    """Every *.json in the folders, keyed by file name; a later folder overrides an earlier one.
+    `only` limits which ids are kept. Raises if any world has problems."""
     worlds = {}
-    for path in sorted(Path(folder).glob("*.json")):
-        world = json.loads(path.read_text(encoding="utf-8"))
-        world["id"] = path.stem
-        errs = validate(world)
-        if errs:
-            raise ValueError(f"{path.name} has problems:\n  " + "\n  ".join(errs))
-        worlds[path.stem] = world
+    for folder in folders:
+        for path in sorted(Path(folder).glob("*.json")):
+            if only and path.stem not in only:
+                continue
+            worlds[path.stem] = load_world(path)
     if not worlds:
-        raise ValueError(f"no worlds found in {folder}")
+        raise ValueError(f"no worlds found in {', '.join(map(str, folders))}")
     return worlds

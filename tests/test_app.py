@@ -9,6 +9,8 @@ import traceback
 from pathlib import Path
 
 os.environ["LLM_URL"] = ""
+os.environ["DATA_DIR"] = ""        # memory only: never write a store from tests
+os.environ["AUTHOR_TOOLS"] = "1"
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -102,7 +104,7 @@ def turn(sid, text):
 
 def test_worlds_and_new_game():
     w = client.get("/api/worlds").json()
-    assert {x["id"] for x in w["worlds"]} == {"darklight", "frozenpass"} and w["default"] == "darklight"
+    assert {x["id"] for x in w["worlds"]} == {"darklight", "frozenpass", "fogbell"} and w["default"] == "darklight"
     d = new("frozenpass")
     assert d["world"] == "frozenpass" and d["title"] == "The Frozen Pass" and d["status"]["room_id"] == "trail"
     assert d["endings_total"] == len(d["endings"]) == 4 and all("hint" in e for e in d["endings"])
@@ -187,6 +189,103 @@ def test_fake_model_voice_and_fallbacks():
         assert set(s["voice"]["rejected_by"]) == {"gendered", "too_short"}, s
     finally:
         server.chat, server.LLM_URL = real_chat, real_url
+
+
+def test_new_game_mode_and_random_layout():
+    d = new()
+    assert d["status"]["mode"] == "normal" and {m["id"] for m in d["modes"]} == {"relaxed", "normal", "hard"}
+    hard = client.post("/api/new", json={"mode": "hard"}).json()
+    assert hard["status"]["mode"] == "hard" and hard["status"]["deadline"] == 32
+    layouts = {tuple(client.post("/api/new", json={}).json()["save"]["choices"].values()) for _ in range(24)}
+    assert len(layouts) == 2, f"new games should get random layouts, saw {layouts}"
+
+
+def test_hard_mode_has_no_director_hints():
+    sid = client.post("/api/new", json={"mode": "hard"}).json()["session"]
+    for _ in range(server.STUCK_TURNS + 2):
+        assert turn(sid, "w")["director"] is None   # "can't go west" over and over: stuck, but no nudge
+
+
+def test_save_codes_carry_a_game():
+    sid = new()["session"]
+    turn(sid, "n")
+    turn(sid, "take lantern")
+    code = client.post("/api/savecode", json={"session": sid}).json()["code"]
+    assert len(code) == 6
+    d = client.get(f"/api/savecode/{code.lower()}").json()
+    assert d["status"]["room_id"] == "cottage" and d["status"]["inventory"] == ["lantern"] and d["session"] != sid
+    assert client.get("/api/savecode/NOPE99").status_code == 404
+
+
+def test_leaderboard_scores_come_from_the_server():
+    server.store.scores.data.clear()
+    for name, cmds in (("Ada", ["board boat"]), ("Bo", ["n", "take matches", "s", "light driftwood"])):
+        sid = client.post("/api/new", json={"name": name}).json()["session"]
+        for c in cmds:
+            turn(sid, c)
+    sid = client.post("/api/new", json={"name": "Cy"}).json()["session"]
+    turn(sid, "board boat")
+    turn(sid, "undo")
+    turn(sid, "board boat")        # the same ending twice in one game counts once
+    rows = server.store.scores.data
+    assert sorted(r["name"] for r in rows) == ["Ada", "Bo", "Cy"], rows
+    board = client.get("/api/leaderboard?world=darklight").json()
+    assert {r["name"] for r in board["collectors"]} == {"Ada", "Bo", "Cy"}
+    assert board["fastest"]["normal"] == []          # nobody reached a "best" ending
+    anon = new()["session"]
+    turn(anon, "board boat")
+    assert len(server.store.scores.data) == 3, "games with no name aren't scored"
+
+
+def test_store_persists_to_disk(tmp_path=None):
+    import tempfile
+    from store import Store
+    with tempfile.TemporaryDirectory() as d:
+        a = Store(d)
+        code = a.put_save({"world": "darklight"})
+        a.add_score({"name": "Ada", "world": "darklight", "ending": "flight", "tone": "dark", "turns": 1, "mode": "normal", "at": 1})
+        b = Store(d)                     # a restart
+        assert b.persistent and b.get_save(code) == {"world": "darklight"} and len(b.scores.data) == 1
+    assert not Store(None).persistent
+
+
+def test_party_round_plays_the_winning_idea():
+    old = server.PARTY_SECONDS
+    server.PARTY_SECONDS = 0             # rounds end on the next poll
+    try:
+        sid = new()["session"]
+        code = client.post("/api/party", json={"session": sid}).json()["code"]
+        p1 = client.post(f"/api/party/{code}/join", json={"name": "Ada"}).json()["player"]
+        p2 = client.post(f"/api/party/{code}/join", json={"name": "Bo"}).json()["player"]
+        p3 = client.post(f"/api/party/{code}/join", json={"name": "Cy"}).json()["player"]
+        server.parties[code].round_seconds = 60  # hold the round open while ideas come in
+        v = client.post(f"/api/party/{code}/propose", json={"player": p1, "text": "go north"}).json()
+        client.post(f"/api/party/{code}/propose", json={"player": p2, "text": "board the boat"})
+        north = next(p["id"] for p in v["proposals"] if p["text"] == "go north")
+        client.post(f"/api/party/{code}/vote", json={"player": p3, "proposal": north})
+        server.parties[code].round_ends = 0      # time's up
+        d = client.get(f"/api/party/{code}?player={p1}").json()
+        assert d["log"][-1]["said"] == "go north" and d["status"]["room_id"] == "cottage", d
+        assert d["proposals"] == [] and d["round"] == 2
+        assert sessions_room(sid) == "cottage", "the host's game moved too"
+        assert client.post(f"/api/party/{code}/propose", json={"player": "nobody", "text": "x"}).status_code == 403
+        assert client.get("/api/party/ZZZZ").status_code == 404
+    finally:
+        server.PARTY_SECONDS = old
+
+
+def sessions_room(sid):
+    return server.sessions[sid].game.room
+
+
+def test_author_report_and_stats_samples():
+    d = client.get("/api/author/fogbell").json()
+    assert d["problems"] == [] and "all_home" in d["summary"]
+    sid = new()["session"]
+    turn(sid, "sing a song about cheese")
+    s = client.get("/api/stats?samples=1").json()
+    assert any(x["text"] == "sing a song about cheese" for x in s["samples"]["unparsed"])
+    assert client.get("/party").status_code == 200 and client.get("/author").status_code == 200
 
 
 def test_index_served():

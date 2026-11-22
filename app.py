@@ -11,13 +11,14 @@ The model has narrow jobs, each kept small enough for a ~0.5B model:
   4. NUDGE   - if the player stalls, the director surfaces the current hint.
 If the model is unavailable, the game still works using the plain facts.
 """
-import difflib
+import asyncio
 import json
 import os
 import re
+import secrets
 import time
 import uuid
-from collections import Counter, OrderedDict
+from collections import Counter, OrderedDict, deque
 from pathlib import Path
 
 import httpx
@@ -26,7 +27,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from engine import Game, load_worlds, parse_rule
+import solver
+from engine import MODES, Game, load_worlds, modes_for, parse_rule, pick_choices
+from party import Party, new_code
+from parsing import FILLER, build_command, cue_verb, fallback_parse, mentions, place_direction  # noqa: F401  (tests use these)
+from store import Store
 
 LLM_URL = os.getenv("LLM_URL", "http://llm:8080").rstrip("/")
 NARRATE = os.getenv("NARRATE", "1") == "1"
@@ -35,28 +40,40 @@ SESSION_TTL = int(os.getenv("SESSION_TTL", "7200"))    # seconds idle before a g
 MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "500"))   # oldest games are dropped past this
 UNDO_DEPTH = 30
 HERE = Path(__file__).parent
-WORLDS = load_worlds(HERE / "worlds")                  # refuses to start if a world file is broken
+# Games are data: the bundled worlds/, plus any folder mounted at WORLDS_DIR (a file there with the
+# same name replaces the bundled one). GAMES limits which ones this server offers.
+WORLD_DIRS = [HERE / "worlds"] + ([Path(os.environ["WORLDS_DIR"])] if os.getenv("WORLDS_DIR") else [])
+GAMES = {g.strip() for g in os.getenv("GAMES", "").split(",") if g.strip()} or None
+WORLDS = load_worlds(*[d for d in WORLD_DIRS if d.is_dir()], only=GAMES)   # refuses to start if a world is broken
 DEFAULT_WORLD = os.getenv("WORLD", "darklight")
 if DEFAULT_WORLD not in WORLDS:
     DEFAULT_WORLD = next(iter(WORLDS))
+DATA_DIR = os.getenv("DATA_DIR", "")                  # leaderboard + save codes; empty = memory only (set /data with a volume)
+AUTHOR_TOOLS = os.getenv("AUTHOR_TOOLS", "0") == "1"  # the solver report page: for authors, off on the box
+PARTY_SECONDS = int(os.getenv("PARTY_SECONDS", "20"))
 
 app = FastAPI()
 client = httpx.AsyncClient(timeout=45)
+store = Store(DATA_DIR)
 
 # How often the model's work is used vs. thrown out by the guards. See /api/stats.
 STATS = {"parse": Counter(), "narrate": Counter(), "narrate_rejected": Counter(),
          "voice": Counter(), "voice_rejected": Counter()}
+# Recent examples of what the guards threw out, and what nobody could parse: tune prompts from these.
+SAMPLES = {"narrate": deque(maxlen=40), "voice": deque(maxlen=40), "unparsed": deque(maxlen=60)}
 
 
 # ---------------- sessions ----------------
 class Session:
-    __slots__ = ("game", "undo", "last")
+    __slots__ = ("game", "undo", "last", "name", "scored")
 
-    def __init__(self, game):
+    def __init__(self, game, name=None):
         self.game, self.undo, self.last = game, [], time.monotonic()
+        self.name, self.scored = name, set()
 
 
 sessions: "OrderedDict[str, Session]" = OrderedDict()   # least recently used first
+parties: "dict[str, Party]" = {}
 
 
 def prune(now=None):
@@ -66,12 +83,14 @@ def prune(now=None):
         if now - s.last <= SESSION_TTL and len(sessions) <= MAX_SESSIONS:
             break
         del sessions[sid]
+    for code in [c for c, p in parties.items() if p.session_id not in sessions]:
+        del parties[code]
 
 
-def open_session(game):
+def open_session(game, name=None):
     prune()
     sid = uuid.uuid4().hex
-    sessions[sid] = Session(game)
+    sessions[sid] = Session(game, name)
     if len(sessions) > MAX_SESSIONS:
         prune()
     return sid
@@ -124,97 +143,21 @@ PARSE_EXAMPLES = [
     ("Player: paddle off in the canoe\nMentioned: canoe\nExits: east -> Garden", {"verb": "board", "direction": "none"}),
     ("Player: sing a song about cheese\nMentioned: (nothing)\nExits: east -> Garden", {"verb": "unknown", "direction": "none"}),
 ]
-NEEDS_OBJECT = {"take", "drop", "examine", "open", "use", "light", "unlock", "fill"}
-OPTIONAL_OBJECT = {"help", "talk", "board"}
-CUE_VERBS = {"open": "open", "read": "examine", "alight": "light", "ignite": "light", "kindle": "light",
-             "unlock": "unlock", "refill": "fill", "talk": "talk", "speak": "talk", "ask": "talk",
-             "rescue": "help", "save": "help", "row": "board", "paddle": "board", "flee": "board", "escape": "board",
-             "ride": "board", "sled": "board", "toboggan": "board"}
-FILLER = {"the", "and", "you", "your", "with", "into", "onto", "from", "that", "this", "over", "back", "there", "toward", "towards"}
-
-
-def words_of(text):
-    return [w for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 3 and w not in FILLER]
-
-
-def fuzzy_in(word, said):
-    return any(w == word or difflib.SequenceMatcher(None, w, word).ratio() >= 0.8 for w in said)
-
-
-def mentions(text, game):
-    """Items the player named, in the order they named them. Visible things win ties."""
-    said = words_of(text)
-    found = []
-    order = game.visible() + [i for i in game.items if i not in game.visible()]
-    for iid in order:
-        for alias in game.items[iid]["aliases"]:
-            if all(fuzzy_in(p, said) for p in alias.split()):
-                first = min(i for i, w in enumerate(said) if any(fuzzy_in(p, [w]) for p in alias.split()))
-                found.append((first, iid))
-                break
-    found.sort()
-    return [iid for _, iid in found]
-
-
-def place_direction(text, game):
-    """'go to the lighthouse' -> the exit whose destination name the player used."""
-    said = words_of(text)
-    hits = [d for d, name in game.exit_names().items() if any(fuzzy_in(p, said) for p in words_of(name))]
-    return hits[0] if len(hits) == 1 else None
-
-
-def build_command(verb, nouns, direction, game):
-    defaults = game.world["verb_defaults"]
-    if verb == "go":
-        return {"verb": "go", "direction": direction} if direction else {"verb": "unknown"}
-    if verb in OPTIONAL_OBJECT:
-        return {"verb": verb, "object": nouns[0] if nouns else None}
-    if verb not in NEEDS_OBJECT:
-        return {"verb": verb}
-    if not nouns:
-        return {"verb": "unknown"}
-    if verb in ("take", "drop") and len(nouns) > 1:  # "grab the matches and the lantern"
-        if verb == "take":
-            keep = [n for n in nouns if game.items[n].get("portable") and n not in game.inv]
-        else:
-            keep = [n for n in nouns if n in game.inv]
-        if len(keep) > 1:
-            return {"verb": verb, "objects": keep}
-        return {"verb": verb, "object": keep[0] if keep else nouns[0]}
-    if verb == "light":
-        rest = [n for n in nouns if n != defaults["light"]] or nouns
-        return {"verb": "light", "object": rest[0]}
-    if verb in ("unlock", "fill"):
-        rest = [n for n in nouns if n != defaults[verb]] or nouns
-        return {"verb": verb, "object": None, "target": rest[0]}
-    if verb == "use":
-        n0 = nouns[0]
-        if len(nouns) == 1 and n0 not in game.inv and game.items[n0].get("portable"):
-            return {"verb": "take", "object": n0}  # "pocket the key", "scoop up the oil"
-        if len(nouns) == 1 and (game.items[nouns[0]].get("container") or game.items[nouns[0]].get("locked_flag")):
-            return {"verb": "open", "object": nouns[0]}
-        # pick the (object, target) pair the world actually has a rule for, in either order
-        for a in nouns:
-            for b in nouns:
-                if a != b and any(u["item"] == a and u["target"] == b for u in game.world["uses"]):
-                    return {"verb": "use", "object": a, "target": b}
-        held = [n for n in nouns if n in game.inv]
-        obj = held[0] if held else nouns[0]
-        others = [n for n in nouns if n != obj]
-        return {"verb": "use", "object": obj, "target": others[0] if others else None}
-    return {"verb": verb, "object": nouns[0]}
-
-
 async def llm_parse(text, game):
     nouns = mentions(text, game)
     exits = game.exit_names()
     direction = place_direction(text, game)
+    own = game.world.get("verbs", {})
     schema = {
         "type": "object",
-        "properties": {"verb": {"enum": MODEL_VERBS}, "direction": {"enum": ["none"] + list(exits)}},
+        "properties": {"verb": {"enum": MODEL_VERBS + list(own)}, "direction": {"enum": ["none"] + list(exits)}},
         "required": ["verb", "direction"],
     }
-    msgs = [{"role": "system", "content": PARSE_SYSTEM}]
+    system = PARSE_SYSTEM
+    if own:
+        system += " This game also has these verbs: " + "; ".join(
+            f"{v} ({', '.join(syns)})" if syns else v for v, syns in own.items()) + "."
+    msgs = [{"role": "system", "content": system}]
     for q, a in PARSE_EXAMPLES:
         msgs += [{"role": "user", "content": q}, {"role": "assistant", "content": json.dumps(a)}]
     named = ", ".join(game.name(n) for n in nouns) or "(nothing)"
@@ -222,7 +165,7 @@ async def llm_parse(text, game):
     msgs.append({"role": "user", "content": f"Player: {text}\nMentioned: {named}\nExits: {ex}"})
     raw = json.loads(await chat(msgs, 30, 0.0, schema))
     raw["mentioned"] = nouns
-    cue = next((CUE_VERBS[w] for w in re.findall(r"[a-z]+", text.lower()) if w in CUE_VERBS), None)
+    cue = cue_verb(text, game)
     if cue and (nouns or cue == "board") and raw["verb"] not in ("go", cue):
         raw["verb_cue"] = cue  # an unambiguous verb word beats the model's guess
         raw["verb"] = cue
@@ -313,6 +256,7 @@ async def llm_narrate(facts, world):
         if not problem:
             return out
         STATS["narrate_rejected"][problem] += 1
+        SAMPLES["narrate"].append({"problem": problem, "output": out, "facts": facts})
     return None
 
 
@@ -376,6 +320,7 @@ async def llm_voice(game, speaker, line, player_text):
         if not problem:
             return out
         STATS["voice_rejected"][problem] += 1
+        SAMPLES["voice"].append({"problem": problem, "output": out, "line": line})
     return None
 
 
@@ -395,6 +340,8 @@ async def voice(game, speaker, line, player_text):
 # ---------------- API ----------------
 class NewGame(BaseModel):
     world: str | None = None
+    mode: str | None = None
+    name: str | None = None
 
 
 class Turn(BaseModel):
@@ -408,6 +355,26 @@ class SessionRef(BaseModel):
 
 class Resume(BaseModel):
     save: dict
+    name: str | None = None
+
+
+class Named(BaseModel):
+    session: str
+    name: str
+
+
+class Join(BaseModel):
+    name: str | None = None
+
+
+class Propose(BaseModel):
+    player: str
+    text: str
+
+
+class Vote(BaseModel):
+    player: str
+    proposal: str
 
 
 def plain(facts):
@@ -456,10 +423,18 @@ def world_info(world):
     """Everything the page needs to draw this world's frame."""
     return {
         "world": world["id"], "title": world["title"], "map": MAPS[world["id"]], "ui": world.get("ui", {}),
+        "theme": world.get("theme", {}),
+        "modes": [{"id": m, "label": spec["label"]} for m, spec in modes_for(world).items()],
         "endings": [{"id": eid, "title": e["title"], "tone": e["tone"], "hint": e.get("hint", "")}
                     for eid, e in world["endings"].items()],
         "endings_total": len(world["endings"]),
+        "persistent": store.persistent,
     }
+
+
+def clean_name(name):
+    name = " ".join(str(name or "").split())[:20]
+    return "".join(ch for ch in name if ch.isprintable()) or None
 
 
 @app.get("/api/worlds")
@@ -470,36 +445,72 @@ async def worlds():
 
 @app.post("/api/new")
 async def new_game(req: NewGame | None = None):
-    wid = (req.world if req else None) or DEFAULT_WORLD
+    req = req or NewGame()
+    wid = req.world or DEFAULT_WORLD
     if wid not in WORLDS:
         raise HTTPException(404, f"Unknown world '{wid}'.")
-    game = Game(WORLDS[wid])
-    sid = open_session(game)
+    mode = req.mode if req.mode in MODES else "normal"
+    world = WORLDS[wid]
+    game = Game(world, pick_choices(world, secrets.randbits(32)), mode)   # a fresh layout each game
+    sid = open_session(game, clean_name(req.name))
     text, narrated = await narrate(game.room_facts(), game.world)
     return {"session": sid, "intro": game.world["intro"], "text": text, "facts": game.room_facts(),
-            "narrated": narrated, "status": game.status(), "save": game.snapshot(), **world_info(game.world)}
+            "narrated": narrated, "status": game.status(), "save": game.snapshot(), **world_info(world)}
+
+
+def resume_game(save, name=None):
+    world = WORLDS.get(save.get("world")) if isinstance(save, dict) else None
+    if not world:
+        raise HTTPException(400, "That save is for a game this server doesn't have.")
+    try:
+        game = Game.restore(world, save)
+    except ValueError as e:
+        raise HTTPException(400, f"Couldn't load that save: {e}.")
+    sid = open_session(game, clean_name(name))
+    return {"session": sid, "text": plain(game.room_facts()), "facts": game.room_facts(), "narrated": False,
+            "status": game.status(), "save": game.snapshot(), **world_info(world)}
 
 
 @app.post("/api/resume")
 async def resume(req: Resume):
     """Pick up a game from a save the browser kept (the server may have restarted)."""
-    world = WORLDS.get(req.save.get("world"))
-    if not world:
-        raise HTTPException(400, "That save is for a world this server doesn't have.")
-    try:
-        game = Game.restore(world, req.save)
-    except ValueError as e:
-        raise HTTPException(400, f"Couldn't load that save: {e}.")
-    sid = open_session(game)
-    return {"session": sid, "text": plain(game.room_facts()), "facts": game.room_facts(), "narrated": False,
-            "status": game.status(), "save": game.snapshot(), **world_info(world)}
+    return resume_game(req.save, req.name)
+
+
+@app.post("/api/name")
+async def set_name(req: Named):
+    s = get_session(req.session)
+    s.name = clean_name(req.name)
+    return {"name": s.name}
+
+
+@app.post("/api/savecode")
+async def make_save_code(req: SessionRef):
+    """A short code that carries this game to another device on the box."""
+    s = get_session(req.session)
+    return {"code": store.put_save(s.game.snapshot()), "persistent": store.persistent}
+
+
+@app.get("/api/savecode/{code}")
+async def load_save_code(code: str, name: str | None = None):
+    save = store.get_save(code)
+    if not save:
+        raise HTTPException(404, "No game saved under that code (codes last 30 days).")
+    return resume_game(save, name)
+
+
+@app.get("/api/leaderboard")
+async def leaderboard(world: str = DEFAULT_WORLD):
+    if world not in WORLDS:
+        raise HTTPException(404, f"Unknown world '{world}'.")
+    return {"world": world, **store.leaderboard(world, ("best",)), "persistent": store.persistent}
 
 
 def undo_turn(s):
     if not s.undo:
         return {"text": "There's nothing to undo.", "facts": [], "parsed_by": "none", "narrated": False,
                 "status": s.game.status(), "save": s.game.snapshot()}
-    s.game = Game.restore(s.game.world, s.undo.pop())
+    s.game = Game.restore(s.game.base, s.undo.pop())
     facts = s.game.room_facts()
     return {"text": "You take that back. " + plain(facts), "facts": facts, "parsed_by": "undo", "narrated": False,
             "undone": True, "status": s.game.status(), "save": s.game.snapshot()}
@@ -510,14 +521,40 @@ async def undo(req: SessionRef):
     return undo_turn(get_session(req.session))
 
 
+async def understand(text, game):
+    """Rules first, then the model, then keywords with no model. Returns (command, raw model output, by)."""
+    cmd = parse_rule(text, game)
+    if cmd is not None:
+        return cmd, None, "rules"
+    if LLM_URL:
+        try:
+            cmd, raw = await llm_parse(text, game)
+            if cmd.get("verb") != "unknown":
+                return cmd, raw, "model"
+            fb = fallback_parse(text, game)
+            return (fb, raw, "fallback") if fb.get("verb") != "unknown" else (cmd, raw, "model")
+        except Exception:
+            pass
+    return fallback_parse(text, game), None, "fallback"
+
+
 def same_state(a, b):
     return {k: v for k, v in a.items() if k != "since_progress"} == {k: v for k, v in b.items() if k != "since_progress"}
 
 
-@app.post("/api/turn")
-async def turn(t: Turn):
-    s = get_session(t.session)
-    text = t.input.strip()[:200]
+def record_score(s):
+    """Scores come from the server's own game, never from the browser."""
+    g = s.game
+    if not (s.name and g.ending) or g.ending in s.scored:
+        return
+    s.scored.add(g.ending)
+    store.add_score({"name": s.name, "world": g.world["id"], "ending": g.ending,
+                     "tone": g.world["endings"][g.ending]["tone"], "turns": g.turns, "mode": g.mode,
+                     "at": int(time.time())})
+
+
+async def run_turn(s, text):
+    text = text.strip()[:200]
     if text.lower() in ("undo", "take back", "go back in time"):
         return undo_turn(s)
     game = s.game
@@ -525,23 +562,20 @@ async def turn(t: Turn):
         return {"text": "This story is over. Start a new game to try a different path, or type undo.",
                 "facts": [], "parsed_by": "none", "narrated": False, "status": game.status(), "save": game.snapshot()}
 
-    raw = None
-    cmd, parsed_by = parse_rule(text, game), "rules"
-    if cmd is None:
-        try:
-            (cmd, raw), parsed_by = await llm_parse(text, game), "model"
-        except Exception:
-            cmd, parsed_by = {"verb": "unknown"}, "none"
+    cmd, raw, parsed_by = await understand(text, game)
     STATS["parse"][parsed_by] += 1
+    if cmd.get("verb") == "unknown":
+        SAMPLES["unparsed"].append({"world": game.world["id"], "room": game.room, "text": text, "by": parsed_by})
 
     before = game.snapshot()
     facts = game.do(cmd)
     if not same_state(before, game.snapshot()):
         s.undo = (s.undo + [before])[-UNDO_DEPTH:]
     director = None
-    if game.since_progress >= STUCK_TURNS and not game.over:
+    if game.since_progress >= STUCK_TURNS and not game.over and game.hints_on():
         director = game.current_hint()
         game.since_progress = 0
+    record_score(s)
 
     # Authored text (clock beats, endings) is shown verbatim; only the action itself is narrated,
     # and only when it's a story beat: moving, discovering, succeeding. Dialogue keeps its authored
@@ -560,6 +594,86 @@ async def turn(t: Turn):
             "ending_text": game.ending_text, "status": game.status(), "save": game.snapshot()}
 
 
+@app.post("/api/turn")
+async def turn(t: Turn):
+    return await run_turn(get_session(t.session), t.input)
+
+
+# ---------- party mode ----------
+def get_party(code):
+    p = parties.get(code.upper())
+    if not p or p.session_id not in sessions:
+        raise HTTPException(404, "No party with that code. Ask the host for the code on their screen.")
+    return p
+
+
+async def settle(p):
+    """Play the winning idea if the round is over. Safe to call from every poll."""
+    if not p.due():
+        return
+    async with p.lock:
+        if not p.due():
+            return
+        win = p.close_round()
+        if win:
+            s = get_session(p.session_id)
+            p.record(win["text"], win["by"], await run_turn(s, win["text"]))
+
+
+@app.post("/api/party")
+async def start_party(req: SessionRef):
+    get_session(req.session)
+    code = new_code(parties)
+    parties[code] = Party(req.session, PARTY_SECONDS)
+    return {"code": code, "round_seconds": PARTY_SECONDS}
+
+
+@app.post("/api/party/{code}/join")
+async def join_party(code: str, req: Join):
+    p = get_party(code)
+    try:
+        pid = p.join(req.name)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    g = get_session(p.session_id).game
+    return {"player": pid, "name": p.players[pid], "title": g.world["title"], "theme": g.world.get("theme", {})}
+
+
+@app.get("/api/party/{code}")
+async def party_state(code: str, player: str | None = None, since: int = 0):
+    p = get_party(code)
+    await settle(p)
+    g = get_session(p.session_id).game
+    return {**p.view(player, since), "title": g.world["title"], "status": g.status()}
+
+
+@app.post("/api/party/{code}/propose")
+async def party_propose(code: str, req: Propose):
+    p = get_party(code)
+    await settle(p)
+    try:
+        p.propose(req.player, req.text)
+    except KeyError as e:
+        raise HTTPException(403, str(e.args[0]))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return p.view(req.player)
+
+
+@app.post("/api/party/{code}/vote")
+async def party_vote(code: str, req: Vote):
+    p = get_party(code)
+    await settle(p)
+    try:
+        p.vote(req.player, req.proposal)
+    except KeyError as e:
+        raise HTTPException(403, str(e.args[0]))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return p.view(req.player)
+
+
+# ---------- health, stats, author tools ----------
 @app.get("/api/health")
 async def health():
     try:
@@ -574,16 +688,38 @@ async def health():
 
 
 @app.get("/api/stats")
-async def stats():
-    """How the model is doing since start-up: how often its output is used or thrown out, and why."""
+async def stats(samples: int = 0):
+    """How the model is doing since start-up: how often its output is used or thrown out, and why.
+    ?samples=1 adds recent rejected outputs and text nobody could parse."""
     def rate(c):
         return round(c["accepted"] / c["requested"], 3) if c["requested"] else None
-    return {"sessions": len(sessions),
-            "parse": dict(STATS["parse"]),
-            "narrate": {**STATS["narrate"], "accept_rate": rate(STATS["narrate"]),
-                        "rejected_by": dict(STATS["narrate_rejected"])},
-            "voice": {**STATS["voice"], "accept_rate": rate(STATS["voice"]),
-                      "rejected_by": dict(STATS["voice_rejected"])}}
+    out = {"sessions": len(sessions), "parties": len(parties),
+           "parse": dict(STATS["parse"]),
+           "narrate": {**STATS["narrate"], "accept_rate": rate(STATS["narrate"]),
+                       "rejected_by": dict(STATS["narrate_rejected"])},
+           "voice": {**STATS["voice"], "accept_rate": rate(STATS["voice"]),
+                     "rejected_by": dict(STATS["voice_rejected"])}}
+    if samples:
+        out["samples"] = {k: list(v) for k, v in SAMPLES.items()}
+    return out
+
+
+AUTHOR_CACHE = {}
+
+
+@app.get("/api/author/{world}")
+async def author_report(world: str):
+    """Validator + solver report for one world, for the author page. Off unless AUTHOR_TOOLS=1."""
+    if not AUTHOR_TOOLS:
+        raise HTTPException(404, "Author tools are off. Set AUTHOR_TOOLS=1 (the dev compose does).")
+    if world not in WORLDS:
+        raise HTTPException(404, f"Unknown world '{world}'.")
+    if world not in AUTHOR_CACHE:
+        w = WORLDS[world]
+        reports = await asyncio.to_thread(solver.solve, w)
+        AUTHOR_CACHE[world] = {"world": world, "title": w["title"], "map": MAPS[world], "summary": solver.summary(w, reports),
+                               "problems": solver.problems(reports), "reports": json.loads(json.dumps(reports, default=list))}
+    return AUTHOR_CACHE[world]
 
 
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -592,3 +728,13 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 @app.get("/")
 async def index():
     return FileResponse(HERE / "static" / "index.html")
+
+
+@app.get("/party")
+async def party_page():
+    return FileResponse(HERE / "static" / "party.html")
+
+
+@app.get("/author")
+async def author_page():
+    return FileResponse(HERE / "static" / "author.html")

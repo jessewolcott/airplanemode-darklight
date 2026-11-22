@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Party</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230d0f12%22/%3E%3Cpath d=%22M12 26h8l-1-12h-6z%22 fill=%22%238a877f%22/%3E%3Ccircle cx=%2216%22 cy=%2210%22 r=%225%22 fill=%22%23f2b34b%22/%3E%3C/svg%3E">
+<style>
+  :root { --bg: #0d0f12; --panel: #14171c; --line: #252a32; --ink: #d9d4c7; --dim: #8a877f; --lamp: #f2b34b;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 1rem/1.5 var(--serif); }
+  main { max-width: 520px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  h1 { font: 600 1.2rem var(--serif); margin: 4px 0 0; } h1 span { color: var(--lamp); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  label { display: block; font: .75rem var(--mono); color: var(--dim); margin-bottom: 4px; }
+  input { width: 100%; font: 1rem var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; outline: none; }
+  input:focus { border-color: var(--lamp); }
+  button { font: .9rem var(--mono); border-radius: 6px; padding: 10px 14px; cursor: pointer; border: 1px solid var(--line); background: none; color: var(--dim); }
+  button.go { background: var(--lamp); color: var(--bg); border-color: var(--lamp); }
+  .row { display: flex; gap: 8px; } .row input { flex: 1; min-width: 0; }
+  .story { font-size: 1.05rem; } .beat { font-style: italic; color: #c7a56b; border-left: 2px solid #5b4a2c; padding-left: 10px; margin: 8px 0 0; }
+  .said { font: .85rem var(--mono); color: #9cc3e6; } .by { font: .72rem var(--mono); color: var(--dim); }
+  .meta { font: .75rem var(--mono); color: var(--dim); display: flex; justify-content: space-between; gap: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li button { width: 100%; text-align: left; display: flex; gap: 10px; align-items: baseline; color: var(--ink); font-family: var(--serif); font-size: 1rem; }
+  li button b { font-family: var(--mono); color: var(--lamp); min-width: 1.5em; }
+  li button.mine { border-color: var(--lamp); }
+  .err { color: #e07a6a; font: .8rem var(--mono); min-height: 1em; }
+  .ending { border-top: 3px solid var(--lamp); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Party <span>mode</span></h1>
+  <section class="card" id="joinCard">
+    <label for="code">Code on the big screen</label>
+    <input id="code" maxlength="4" autocapitalize="characters" autocomplete="off" placeholder="ABCD">
+    <label for="name" style="margin-top:10px">Your name</label>
+    <div class="row"><input id="name" maxlength="20" autocomplete="nickname"><button class="go" id="join">Join</button></div>
+    <div class="err" id="joinErr"></div>
+  </section>
+  <section id="game" hidden>
+    <div class="card" id="latest"><div class="by">Waiting for the first move…</div></div>
+    <div class="meta" style="margin:12px 0 6px"><span id="round"></span><span id="you"></span></div>
+    <form class="row" id="f" autocomplete="off"><input id="idea" maxlength="120" placeholder="Suggest what to do"><button class="go">Suggest</button></form>
+    <div class="err" id="err"></div>
+    <ul id="ideas" style="margin-top:8px"></ul>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+let code = null, player = null, since = 0, timer = null;
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function load(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function store(k, v) { try { sessionStorage.setItem(k, v); } catch {} }
+async function call(url, body) {
+  const r = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || r.statusText);
+  return d;
+}
+
+async function join() {
+  code = $("#code").value.trim().toUpperCase();
+  const name = $("#name").value.trim();
+  try { localStorage.setItem("name", JSON.stringify(name)); } catch {}
+  try {
+    const d = await call(`api/party/${code}/join`, { name });
+    player = d.player; store(`party-${code}`, player);
+    start(d.title, d.theme);
+  } catch (e) { $("#joinErr").textContent = e.message; }
+}
+
+function start(title, theme) {
+  if (theme && theme.accent) document.documentElement.style.setProperty("--lamp", theme.accent);
+  const words = (title || "Party").split(" "), last = words.pop();
+  $("#title").innerHTML = `${esc(words.join(" "))} <span>${esc(last)}</span>`;
+  document.title = title || "Party";
+  $("#joinCard").hidden = true; $("#game").hidden = false;
+  poll();
+}
+
+function draw(d) {
+  for (const e of d.log) {
+    since = e.n;
+    $("#latest").className = "card" + (e.ending ? " ending" : "");
+    $("#latest").innerHTML = `<div class="said">&gt; ${esc(e.said)} <span class="by">(${esc(e.by)})</span></div>` +
+      (e.text ? `<p class="story">${esc(e.text)}</p>` : "") + (e.beats || []).map(b => `<p class="beat">${esc(b)}</p>`).join("") +
+      (e.ending ? `<p class="story"><b>${esc(e.status && e.status.ending ? e.status.ending.title : "The end")}</b><br>${esc(e.ending)}</p>` : "");
+  }
+  const s = d.status || {};
+  $("#round").textContent = s.over ? "The story is over." : d.ends_in != null ? `Round ${d.round} · ${Math.ceil(d.ends_in)}s left` : `Round ${d.round} · first idea starts the clock`;
+  $("#you").textContent = `${d.you || ""} · ${d.players} playing`;
+  $("#f").hidden = !!s.over;
+  $("#ideas").innerHTML = d.proposals.map(p => `<li><button type="button" data-id="${esc(p.id)}" class="${p.mine ? "mine" : ""}"><b>${p.votes}</b><span>${esc(p.text)} <span class="by">${esc(p.by)}</span></span></button></li>`).join("");
+}
+
+async function poll() {
+  clearTimeout(timer);
+  try { draw(await call(`api/party/${code}?player=${player}&since=${since}`)); $("#err").textContent = ""; }
+  catch (e) { $("#err").textContent = e.message; }
+  timer = setTimeout(poll, 1500);
+}
+
+$("#join").addEventListener("click", join);
+$("#name").addEventListener("keydown", e => { if (e.key === "Enter") join(); });
+$("#f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const text = $("#idea").value.trim();
+  if (!text) return;
+  try { draw(await call(`api/party/${code}/propose`, { player, text })); $("#idea").value = ""; $("#err").textContent = ""; }
+  catch (err) { $("#err").textContent = err.message; }
+});
+$("#ideas").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-id]");
+  if (!b) return;
+  try { draw(await call(`api/party/${code}/vote`, { player, proposal: b.dataset.id })); } catch (err) { $("#err").textContent = err.message; }
+});
+
+const params = new URLSearchParams(location.search);
+$("#code").value = (params.get("code") || "").toUpperCase();
+try { $("#name").value = JSON.parse(localStorage.getItem("name")) || ""; } catch {}
+const known = $("#code").value && load(`party-${$("#code").value}`);
+if (known) { code = $("#code").value; player = known; call(`api/party/${code}?player=${player}`).then(d => start(d.title)).catch(() => {}); }
+</script>
+</body>
+</html>

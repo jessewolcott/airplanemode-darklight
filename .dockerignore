@@ -1,6 +1,11 @@
 .git
 .github
+.vscode
 tests
+evals
+templates
+schemas
 __pycache__
 *.md
 compose.yaml
+requirements-dev.txt

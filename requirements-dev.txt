@@ -1,0 +1,2 @@
+anthropic        # cli.py draft only (dev machine; never in the image)
+jsonschema       # tests check worlds against schemas/world.schema.json

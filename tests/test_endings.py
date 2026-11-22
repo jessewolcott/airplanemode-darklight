@@ -31,6 +31,14 @@ ROUTES = {
         "downhill": ["ride sled"],
         "white_silence": ["e", "w"] * 16,
     },
+    "fogbell": {
+        "all_home": ["e", "shout fog", "w", "n", "e", "take ladder", "open chest", "take rope", "w",
+                     "use ladder on hatch", "u", "use rope on bell", "ring bell"],
+        "two_home": ["n", "e", "take ladder", "open chest", "take rope", "w", "use ladder on hatch", "u",
+                     "use rope on bell", "ring bell"],
+        "one_hand": ["e", "wade fog"],
+        "tide": ["e", "w"] * 14,
+    },
 }
 
 

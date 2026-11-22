@@ -1,0 +1,74 @@
+{
+  "title": "Untitled Adventure",
+  "blurb": "One sentence for the picker.",
+  "setting": "an old watchtower on a hill at dusk",
+  "theme": { "accent": "#c9a86a" },
+  "intro": "Write two or three sentences that set the scene and say what's at stake.",
+  "start": "gate",
+  "verb_defaults": { "light": "flint", "unlock": "iron_key", "fill": "flint" },
+  "tool_missing": { "light": "You have nothing to light it with.", "unlock": "You need a key for that." },
+  "ui": {
+    "clock_title": "Nightfall",
+    "clock_labels": [[10, "The sun is low."], [4, "Almost dark."], [0, "Darkness."]],
+    "over_label": "The night is over.",
+    "map_label": "Map"
+  },
+  "map": { "tower": [1, 0], "gate": [0, 1], "yard": [1, 1] },
+  "rooms": {
+    "gate": {
+      "name": "Gate", "aliases": ["entrance"],
+      "desc": "A broken gate in a low stone wall. A yard lies east.",
+      "exits": { "east": "yard" },
+      "items": ["horse"]
+    },
+    "yard": {
+      "name": "Yard", "aliases": ["courtyard"],
+      "desc": "A weedy yard below the tower. A chest sits by the wall. The tower door is up a short stair; the gate is west.",
+      "exits": { "west": "gate", "up": { "to": "tower", "flag": "door_open", "blocked": "The tower door is locked." } },
+      "items": ["chest", "tower_door"]
+    },
+    "tower": {
+      "name": "Tower Top", "aliases": ["top"],
+      "desc": "The top of the tower, open to the wind. A beacon of dry wood stands ready.",
+      "exits": { "down": "yard" },
+      "items": ["beacon"]
+    }
+  },
+  "items": {
+    "horse": { "name": "horse", "aliases": ["horse", "mount"], "portable": false,
+      "desc": "Your horse, saddled and restless. You could ride away now." },
+    "chest": { "name": "chest", "aliases": ["chest", "box"], "portable": false, "container": true,
+      "contains": ["iron_key", "flint"],
+      "desc": "A wooden chest. Its lid is shut.", "desc_open": "A wooden chest, lid open." },
+    "iron_key": { "name": "iron key", "aliases": ["key", "iron key"], "portable": true, "desc": "A heavy iron key." },
+    "flint": { "name": "flint", "aliases": ["flint", "steel"], "portable": true, "desc": "A flint and steel." },
+    "tower_door": { "name": "tower door", "aliases": ["door", "tower door"], "portable": false,
+      "locked_flag": "door_open", "desc": "A stout door, locked.",
+      "desc_flags": { "door_open": "The tower door stands open." } },
+    "beacon": { "name": "beacon", "aliases": ["beacon", "wood", "fire"], "portable": false,
+      "desc": "A stack of dry wood, ready to light." }
+  },
+  "uses": [
+    { "item": "iron_key", "target": "tower_door", "unless": "door_open", "already": "It's already open.",
+      "set": "door_open", "fact": "The key turns and the tower door swings open." },
+    { "item": "flint", "target": "beacon", "set": "beacon_lit",
+      "fact": "You strike sparks into the wood and the beacon roars up into the dusk.", "ending": "beacon" }
+  ],
+  "interactions": [
+    { "verb": "board", "target": "horse", "fact": "You swing into the saddle and ride.", "ending": "away" }
+  ],
+  "clock": {
+    "deadline": 16, "deadline_ending": "dark",
+    "beats": [ { "turn": 6, "fact": "The sun touches the hills." }, { "turn": 12, "fact": "Only a red line of light is left in the sky." } ]
+  },
+  "endings": {
+    "beacon": { "title": "The Beacon", "tone": "best", "hint": "Light the beacon.", "text": "Write what happens when they succeed." },
+    "away": { "title": "Riding Away", "tone": "dark", "hint": "You could just leave.", "text": "Write what happens when they leave." },
+    "dark": { "title": "Darkness", "tone": "worst", "hint": "Wait too long.", "text": "Write what happens when time runs out." }
+  },
+  "hints": [
+    { "done": "has:iron_key|flag:door_open", "hint": "The chest in the yard might hold something." },
+    { "done": "flag:door_open", "hint": "The tower door needs the key." },
+    { "done": "flag:beacon_lit", "hint": "Climb the tower and light the beacon." }
+  ]
+}

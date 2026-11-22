@@ -1,0 +1,144 @@
+[
+  { "world": "darklight", "at": [], "cases": [
+    ["head over to the lighthouse", "east"],
+    ["walk up to the cottage", "north"],
+    ["go to the cottage", "north"],
+    ["head east", "east"],
+    ["go towards the tower", "east"],
+    ["check out the boat", "examine rowboat"],
+    ["what's that boat", "examine rowboat"],
+    ["inspect the driftwood", "examine driftwood"],
+    ["pick up the driftwood", "take driftwood"],
+    ["grab some wood", "take driftwood"],
+    ["get in the boat and row away", "board rowboat"],
+    ["escape in the rowboat", "board rowboat"],
+    ["row to the mainland", "board rowboat"],
+    ["look around", "look"],
+    ["where can I go", "look"],
+    ["what am I carrying", "inventory"],
+    ["I need a hint", "hint"],
+    ["set the driftwood on fire", "light driftwood"]
+  ] },
+  { "world": "darklight", "at": ["n"], "cases": [
+    ["grab the lantern", "take lantern"],
+    ["pocket the matches", "take matches"],
+    ["snag the tin of matches", "take matches"],
+    ["take the matches and the lantern", "take matches and lantern"],
+    ["read the logbook", "examine logbook"],
+    ["what does the journal say", "examine logbook"],
+    ["look in the drawer", "examine drawer"],
+    ["pull open the drawer", "open drawer"],
+    ["open up the desk drawer", "open drawer"],
+    ["what's in the drawer", "examine drawer"],
+    ["go down the trapdoor", "down"],
+    ["climb down into the cellar", "down"],
+    ["head back to the shore", "south"],
+    ["check the desk", "examine desk"],
+    ["fetch the lamp from the table", "take lantern"]
+  ] },
+  { "world": "darklight", "at": ["n", "take matches", "take lantern"], "cases": [
+    ["light the lantern", "light lantern"],
+    ["set the lantern alight", "light lantern"],
+    ["use the matches on the lantern", "light lantern"],
+    ["strike a match and light the lantern", "light lantern"],
+    ["kindle the lantern", "light lantern"],
+    ["drop the matches", "drop matches"],
+    ["leave the lantern here", "drop lantern"],
+    ["what am I holding", "inventory"]
+  ] },
+  { "world": "darklight", "at": ["n", "take matches", "take lantern", "light lantern", "d"], "cases": [
+    ["talk to the keeper", "talk to keeper"],
+    ["ask the keeper what happened", "talk to keeper"],
+    ["speak with the injured man", "talk to keeper"],
+    ["help the keeper up the ladder", "help keeper"],
+    ["carry the keeper out", "help keeper"],
+    ["rescue them", "help keeper"],
+    ["get the keeper out of here", "help keeper"],
+    ["grab the oil", "take oil"],
+    ["pick up the fuel", "take oil"],
+    ["search the shelves", "examine shelves"],
+    ["open the chest", "open chest"],
+    ["look at the keeper", "examine keeper"],
+    ["go back up", "up"],
+    ["climb the ladder", "up"],
+    ["head upstairs", "up"]
+  ] },
+  { "world": "darklight", "at": ["n", "take matches", "take lantern", "light lantern", "d", "talk to keeper"], "cases": [
+    ["take the block and tackle", "take tackle"],
+    ["grab the pulley", "take tackle"],
+    ["get the rope", "take tackle"],
+    ["use the pulley to lift the keeper", "help keeper"]
+  ] },
+  { "world": "darklight", "at": ["n", "open drawer", "take key", "s", "e"], "cases": [
+    ["unlock the door", "unlock door"],
+    ["use the key on the iron door", "unlock door"],
+    ["open the door with the key", "unlock door"],
+    ["try the key in the door", "unlock door"],
+    ["go up the stairs", "up"],
+    ["go back to the shore", "west"],
+    ["examine the door", "examine door"]
+  ] },
+  { "world": "darklight", "at": ["n", "open drawer", "take key", "take matches", "take lantern", "light lantern", "d", "take oil", "u", "s", "e", "unlock door", "u", "u"], "cases": [
+    ["fill the lamp", "fill lamp"],
+    ["pour the oil into the lamp", "fill lamp"],
+    ["refuel the great lamp", "fill lamp"],
+    ["put the oil in the lamp", "fill lamp"],
+    ["top up the lamp with oil", "fill lamp"],
+    ["light the lamp", "light lamp"],
+    ["examine the lens", "examine lamp"],
+    ["go back down", "down"]
+  ] },
+  { "world": "frozenpass", "at": [], "cases": [
+    ["go to the hut", "east"],
+    ["head for the mountain hut", "east"],
+    ["ride the sled down", "board sled"],
+    ["sled down the mountain", "board sled"],
+    ["look at the slope", "examine ice"],
+    ["climb the ice", "up"],
+    ["check out the sled", "examine sled"]
+  ] },
+  { "world": "frozenpass", "at": ["e"], "cases": [
+    ["open the cupboard", "open cupboard"],
+    ["look in the cupboard", "examine cupboard"],
+    ["check the stove", "examine stove"],
+    ["go back out to the trail", "west"],
+    ["examine the padlock", "examine door"]
+  ] },
+  { "world": "frozenpass", "at": ["e", "open cupboard"], "cases": [
+    ["grab everything", "take all"],
+    ["take the matches and the key", "take matches and key"],
+    ["pocket the key", "take key"],
+    ["snag the matchbox", "take matches"]
+  ] },
+  { "world": "frozenpass", "at": ["e", "open cupboard", "take all"], "cases": [
+    ["unlock the padlock", "unlock door"],
+    ["open the shed with the key", "unlock door"],
+    ["use the key on the woodshed door", "unlock door"],
+    ["light the stove", "light stove"]
+  ] },
+  { "world": "frozenpass", "at": ["e", "open cupboard", "take all", "unlock door", "e"], "cases": [
+    ["gather some logs", "take firewood"],
+    ["grab the axe", "take axe"],
+    ["take wood and axe", "take firewood and axe"],
+    ["pick up the ice axe", "take axe"],
+    ["go back to the hut", "west"]
+  ] },
+  { "world": "frozenpass", "at": ["e", "open cupboard", "take all", "unlock door", "e", "take firewood and axe", "w"], "cases": [
+    ["put the wood in the stove", "fill stove"],
+    ["stuff the logs into the stove", "fill stove"],
+    ["load the stove", "fill stove"],
+    ["light the fire", "light stove"]
+  ] },
+  { "world": "frozenpass", "at": ["e", "open cupboard", "take all", "unlock door", "e", "take firewood and axe", "w", "w"], "cases": [
+    ["cut steps in the ice", "use axe on ice"],
+    ["chop at the ice with the axe", "use axe on ice"],
+    ["hack some steps into the slope", "use axe on ice"]
+  ] },
+  { "world": "frozenpass", "at": ["e", "open cupboard", "take all", "unlock door", "e", "take firewood and axe", "w", "w", "use axe on ice", "u"], "cases": [
+    ["help the climber", "help climber"],
+    ["carry them down", "help climber"],
+    ["talk to the mountaineer", "talk to climber"],
+    ["ask how they're doing", "talk to climber"],
+    ["get the climber down to the hut", "help climber"]
+  ] }
+]

@@ -1,79 +1,84 @@
-# The Dark Light: a tiny-LM text adventure
+# The Dark Light: a tiny-LM text adventure engine
 
-An [AirplaneMode](https://github.com/jessewolcott/airplanemode) app. It's a text adventure that
-plays in the browser. A small language model (served by llama.cpp) directs it, and a
-deterministic engine keeps it honest. It ships with two adventures: **The Dark Light** (the
-lighthouse) and **The Frozen Pass** (a short mountain story). Players choose one from the menu at the top of the page.
+An [AirplaneMode](https://github.com/jessewolcott/airplanemode) app. It's a text-adventure
+engine that plays in the browser. A small language model (served by llama.cpp) helps understand
+players and narrate, and a deterministic engine keeps the game honest.
+
+Games are data files. The engine, server, page, parser, narrator, solver and author tools are
+shared, so **a new game is one JSON file** in `worlds/`. Three ship with it:
+
+| Game | What it is | Endings |
+|---|---|---|
+| **The Dark Light** | A storm, a dark lighthouse, a ship heading for the rocks | 7 |
+| **The Frozen Pass** | A blizzard, a cold mountain hut, a climber on the ridge | 4 |
+| **The Fog Bell** | Fog on the marsh, children lost on the causeway, a bell with no rope | 4 |
+
+## Making a new game
+
+```
+python cli.py new sunkenbell --title "The Sunken Bell"   # start from the template
+python cli.py play sunkenbell                            # play it in the terminal
+python cli.py check sunkenbell                           # validate + solve every possible game
+python cli.py draft "<premise>" --id sunkenbell          # or let Claude draft it (dev machine only)
+```
+
+[docs/writing-a-game.md](docs/writing-a-game.md) covers all of the building blocks. VS Code
+checks world files against [schemas/world.schema.json](schemas/world.schema.json) as you type.
+Before a game ships, two automatic checks run:
+- **Validator:** catches broken ids and missing fallbacks.
+- **Solver:** plays every possible game. It proves every ending is reachable in time and finds
+  dead ends, traps and the moves that close off an ending.
+
+New games appear in the picker without code changes. On the box, mount a folder at `WORLDS_DIR`
+and you can add games without a new image.
 
 ## Running it
 
-**On the box:** the [airplanemode](https://github.com/jessewolcott/airplanemode) platform repo
-runs the released image at `/darklight/` and connects it to the shared model. On the GL.iNet
-profile there is no model, and the game plays in plain-text mode.
+**On the box:** the platform repo runs the released image at `/darklight/` and connects it to
+the shared model. On the GL.iNet profile there is no model. A keyword parser still understands
+plain English, and narration is the engine's own text.
 
-**On its own, for development:** this repo's `compose.yaml` runs the game with its own
-0.5B model:
+**On its own, for development:** `compose.yaml` runs the game with its own 0.5B model, the
+author report at `/author`, and a `./games` folder for trying new worlds without rebuilding.
 
 ```
-docker compose up -d --build        # first run downloads the model (~400 MB)
-open http://localhost:8765
+docker compose up -d --build        # first run downloads the model (~400 MB) -> http://localhost:8765
 ```
 
 Use a different port with `PORT=9000`, or a different model with any GGUF on Hugging Face, for
 example `MODEL=Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M`.
 
-**Tests:**
+**Tests** (CI runs all of these):
 
 ```
-python tests/test_endings.py        # every ending in every world is still reachable (no deps)
-python tests/test_engine.py         # engine rules and fixed bugs (no deps)
+python cli.py check --all-modes     # every world validates and solves, in every difficulty
+python tests/test_endings.py        # scripted route to every ending
+python tests/test_engine.py         # engine rules and fixed bugs
+python tests/test_kit.py            # variants, modes, own verbs, solver, CLI, schema
 pip install -r requirements.txt
-python tests/test_app.py            # server, undo/resume, sessions, model guards (fake model)
+python tests/test_app.py            # server, undo/resume, party, leaderboard, model guards (fake model)
+python evals/parse_eval.py          # how well player text is understood (add --llm URL for the model)
 ```
 
-**Releasing:** push a tag like `v0.2.0`. GitHub Actions runs the tests and publishes
-`ghcr.io/jessewolcott/airplanemode-darklight:0.2.0` for arm64 and amd64. Then bump the pinned
+**Releasing:** push a tag like `v0.3.0`. GitHub Actions runs the tests and publishes
+`ghcr.io/jessewolcott/airplanemode-darklight:0.3.0` for arm64 and amd64. Then bump the pinned
 tag in the platform repo's `compose.yaml`.
 
-## Fixed map, semi-solid story
+## For players
 
-The map never changes. It's drawn in the side panel from the world's `map`, and the model
-can't add or move places. The story has a fixed spine with branches:
-
-- **Clock.** Actions that change the world take one turn. Anything that changes nothing is
-  free: looking, examining, repeating a conversation, or a failed attempt. A ship gets closer at
-  fixed beats (turns 8, 18, 27 and 34) and hits the rocks at turn 38.
-- **Choices with a cost.** The missing keeper is in the dark cellar. Carrying them out costs
-  4 turns, or 1 if you talked to them first and rigged the block and tackle they mention. The
-  driftwood bonfire is a quick signal, but not a perfect one. The rowboat lets you leave.
-- **Light with limits.** The lantern burns for 20 turns, warns when it's low, then goes out.
-  Top it up from the oil can. A lit lantern set down on the floor still lights the room.
-- **Seven written endings** in The Dark Light, chosen by flags and timing:
-
-| Ending | How you get it |
-|---|---|
-| The Keeper's Light | light the lamp after rescuing the keeper |
-| A Light Alone | light the lamp, keeper left behind |
-| Two Keepers of the Fire | light the driftwood after rescuing the keeper |
-| Fire on the Shore | light the driftwood alone |
-| Two in the Boat | row away with the keeper |
-| The Long Row | row away alone |
-| The Teeth | the clock runs out |
-
-The ending text, clock beats and timer messages are shown exactly as written, never rewritten
-by the model. The side panel counts the endings you've found and shows a hint for each
-missing one. Your browser remembers them, per adventure.
-
-## Saving, resuming and undo
-
-- After every turn, the browser saves the game state and transcript. Reloading the page
-  picks up where you left off. If the server restarted, the page rebuilds the game from that
-  save without you noticing. Saves come from the browser, so the server checks every id in one
-  before using it.
-- `undo` (typed, or the button) takes back the last turn that changed something, up to 30
-  turns back, including an ending.
-- The server forgets games idle for `SESSION_TTL` seconds (default 2 hours) and holds at most
-  `MAX_SESSIONS` (default 500), so memory stays bounded on the box.
+- **Free turns.** Actions that change the world take a turn. Looking, examining, failed attempts
+  and repeated talk are free.
+- **Difficulty.** Relaxed gives more time and nothing burns out. Hard has less time and no hints.
+- **Layouts.** Some things start in a different place each game, and the text follows.
+- **Undo** (typed or the button), up to 30 turns, including an ending.
+- **Saving.** The browser saves after every turn, so a reload or server restart resumes. A
+  **save code** carries a game to another device on the box.
+- **Endings tracker** with a hint for each ending not found yet, and a **leaderboard**
+  (fastest best ending per difficulty, most endings found). Scores are recorded by the server
+  from the real game, not sent by the browser.
+- **Party mode.** One game on a shared screen. Everyone on the box's Wi-Fi opens `/party`,
+  suggests commands and votes, and each round the winner is played.
+- **Read aloud and ambient sound,** both generated in the browser, so they work offline.
 
 ## How the work is split
 
@@ -82,55 +87,52 @@ contradicts itself. So it only gets narrow jobs, and every job has a determinist
 
 | Job | Who | Guard |
 |---|---|---|
-| Rules, state, win condition | `engine.py` (plain Python) | the model never sees or edits state |
-| Standard commands (`take key`, `n`, `unlock door`, `take matches and lantern`, `take all`) | rule parser | handles about 70% of turns instantly |
-| Free-text intent ("head over to the lighthouse") | **model** classifies the verb | JSON-schema grammar limits output to valid verbs and exits; code does the noun and place matching with fuzzy strings; unambiguous verb words override the model |
-| Narration of story beats (moving, finding, succeeding) | **model** rewrites engine facts | output rejected and replaced by plain facts if it's first person, repetitive, too long, drops a listed item or the direction taken, claims an action that didn't happen, or copies the few-shot examples |
-| Dialogue | **model** voices the authored line | rejected and shown as written if it drops or adds any named thing or place, uses he/she, isn't dialogue, or is far longer or shorter |
-| Nudges when the player stalls | director (engine hint plus a turn counter) | hints come from the world file |
+| Rules, state, win condition | `engine.py` | the model never sees or edits state |
+| Standard commands (`take key`, `n`, `take all`) | rule parser (`engine.parse_rule`) | exact; hands anything unclear on |
+| Free-text intent ("head over to the lighthouse") | **model** classifies the verb | JSON-schema grammar limits it to valid verbs and exits; code matches nouns and places; unambiguous verb words override it |
+| Free text with no model | keyword parser (`parsing.fallback_parse`) | fuzzy nouns, place aliases, keyword verbs; harmless when unsure (examines rather than uses) |
+| Narration of story beats | **model** rewrites engine facts | rejected and replaced by plain facts if it's first person, repetitive, too long, drops an item or the direction, claims an action that didn't happen, or copies the examples |
+| Dialogue | **model** voices the authored line | rejected unless it keeps exactly the same named things and places, avoids he/she, and stays close in length |
+| Nudges when the player stalls | director (engine hint plus a turn counter) | hints come from the world file; off in hard mode |
 
-Failures and lookups (`examine`, "you can't go that way") skip the model and show the
-engine's own text. The status bar always shows ground truth.
+Clock beats, ending text and timer messages are shown exactly as written. Tick **engine facts**
+in the UI to see each turn's parse and the facts behind the narration.
 
-Tick **engine facts** in the UI to see, for each turn, what the model said, what the parser
-decided, and the facts the narration was built from. `GET /api/stats` reports, since start-up,
-how often the model's narration and dialogue were used or thrown out, and which guard
-rejected them. Use it to compare models (for example 0.5B against 1.5B on the R6S).
+## Measuring the model
 
-## Writing an adventure
+- **`/api/stats`** counts, since start-up, how often narration and dialogue were used or thrown
+  out, and which guard rejected them. `?samples=1` adds recent rejected outputs, plus player text
+  nobody could parse.
+- **`evals/parse_eval.py`** scores understanding against two test sets of player phrasings. A
+  parse counts as right when it has the same effect in the game as the intended command.
+  - The **tuned** set is the one the parser was improved against.
+  - The **held-out** set has never been tuned against. It's the honest number, and today the
+    no-model parser gets about 55% on it.
 
-Each file in `worlds/` is one adventure; its file name is its id. The server refuses to start
-if a world has problems (an exit to a room that doesn't exist, a typo'd item id, an ending or
-talk list with no fallback, a bad condition), and lists every one. The building blocks:
-
-- `rooms`, `map`, `items` (`portable`, `person`, `container`, `locked_flag`, `light_flag`,
-  `desc_flags`), `start`, `intro`, `setting` (used in the narrator's prompt), `ui` (clock
-  title and labels, map label).
-- `uses`: item on target. Keys: `set`, `clear`, `renew`, `requires`, `unless`, `refuse`, `where`,
-  `consume`, `ending`.
-- `interactions`: `help` or `board` a target. Keys: `cost`, `move`, `move_player`, `ending`.
-- `talk` lines on a person: `if`, `say`, plus optional `set` and `reveal` (put an item in a room).
-- `timers`: a flag that runs out after N turns, with warning and "out" messages.
-- `clock` (beats and a deadline), `endings` (with a `hint` for the tracker), `hints`.
-
-Conditions are `has:item`, `flag:name` or `seen:room`, joined with `|` for "or". Anything
-that can vary (`ending`, `fact`, `cost`) can be a list of `{if, ...}` options, checked in order,
-with a last option that has no `if`. Add a route for every new ending to `tests/test_endings.py`.
+  The loop: collect unparsed text from `/api/stats?samples=1`, add it as cases, fix, and keep a
+  fresh held-out set aside each round.
 
 ## Files
 
-- `worlds/*.json`: the adventures.
-- `engine.py`: deterministic engine, rule parser, save/restore and world validation.
-- `app.py`: FastAPI server, sessions, model prompts and guards. Set `LLM_URL` empty to run with no model.
-- `static/index.html`: the UI. It uses relative URLs, so it works under any path prefix.
-- `app.yaml`: this app's AirplaneMode manifest (port, path, memory, needs, env).
-- `tests/`: endings, engine and server tests.
+| Path | What it is |
+|---|---|
+| `worlds/*.json` | the games |
+| `engine.py` | deterministic engine, rule parser, variants and modes, save/restore, world validation |
+| `parsing.py` | noun/place matching, the model's command builder, the no-model parser |
+| `solver.py` | exhaustive solver (used by `cli.py check`/`solve`, tests and `/author`) |
+| `cli.py` | author tools: new, check, solve, play, map, draft |
+| `app.py` | FastAPI server: sessions, model prompts and guards, party, leaderboard, save codes |
+| `party.py`, `store.py` | party rounds; the small persistent store (`DATA_DIR`) |
+| `static/` | the game page, the party page for phones, the author report |
+| `docs/`, `schemas/`, `templates/` | authoring guide, JSON schema, starter world |
+| `evals/` | parse test sets and scorer |
+| `app.yaml` | this app's AirplaneMode manifest (port, path, memory, needs, env) |
 
 ## Known limits
 
-- Narration still adds harmless flavour that can contradict details (for example, a
-  "beam of light" before the lamp is lit). The guards catch missing items, directions and
-  false actions, not every invented detail. The prompts and guards were tuned on 0.5B.
-- Dialogue voicing is strict on purpose, so a small model's version is often rejected
-  and the authored line is shown. `/api/stats` shows how often.
-- Saves and found endings live in the browser, so they don't follow a player to another device.
+- Narration can still add harmless flavour that contradicts details. The guards catch missing
+  items, directions and false actions, not every invented detail.
+- The no-model parser handles common phrasings, not everything (see the held-out score).
+- Without `DATA_DIR`, the leaderboard and save codes reset when the container restarts.
+- `cli.py draft` hasn't yet been run against the live API from this repo. Check its first
+  output carefully.

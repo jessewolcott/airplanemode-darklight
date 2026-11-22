@@ -22,12 +22,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Tests (every ending, engine rules, server and guards)
+      - name: Tests (every ending, engine, kit + solver, server and guards)
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.txt jsonschema
+          python cli.py check --all-modes
           python tests/test_endings.py
           python tests/test_engine.py
+          python tests/test_kit.py
           python tests/test_app.py
+          python evals/parse_eval.py
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3

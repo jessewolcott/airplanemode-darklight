@@ -2,6 +2,7 @@
   "title": "The Dark Light",
   "blurb": "A storm, a dark lighthouse, a ship heading for the rocks.",
   "setting": "a lighthouse on a rocky island during a storm",
+  "theme": { "accent": "#f2b34b" },
   "intro": "You wash up on the island as the storm peaks. The lighthouse above you is dark, and somewhere out in the rain a ship is heading for the rocks they call the Teeth. Someone has to light the lamp.",
   "start": "shore",
   "verb_defaults": { "light": "matches", "unlock": "brass_key", "fill": "oil_can" },
@@ -14,7 +15,8 @@
     "clock_title": "The ship",
     "clock_labels": [[20, "Far out to sea."], [10, "Getting closer."], [4, "Close. Very close."], [0, "Almost on the Teeth."]],
     "over_label": "The night is over.",
-    "map_label": "Island map"
+    "map_label": "Island map",
+    "ambience": "storm"
   },
 
   "map": {
@@ -26,12 +28,14 @@
   "rooms": {
     "shore": {
       "name": "Rocky Shore",
+      "aliases": ["beach", "rocks", "sea"],
       "desc": "Waves smash against black rocks. A rowboat lies dragged above the tideline. A path leads north to a small cottage, and the dark lighthouse tower rises to the east.",
       "exits": { "north": "cottage", "east": "base" },
       "items": ["driftwood", "rowboat"]
     },
     "cottage": {
       "name": "Keeper's Cottage",
+      "aliases": ["house", "cabin", "home"],
       "desc": "A cramped one-room cottage. The fire has burned to ash. A trapdoor in the floor leads down to a cellar; the door south leads back to the shore.",
       "exits": { "south": "shore", "down": "cellar" },
       "items": ["desk", "drawer", "logbook", "matches", "lantern"]
@@ -42,10 +46,11 @@
       "dark": true,
       "dark_desc": "Somewhere in the blackness, someone groans.",
       "exits": { "up": "cottage" },
-      "items": ["oil_can", "shelves", "keeper"]
+      "items": ["oil_can", "shelves", "sea_chest", "keeper"]
     },
     "base": {
       "name": "Base of the Lighthouse",
+      "aliases": ["tower"],
       "desc": "The tower's base is slick with spray. A heavy iron door is set into the wall, and above it the stair climbs up into the tower. The shore lies west.",
       "exits": {
         "west": "shore",
@@ -55,12 +60,14 @@
     },
     "stair": {
       "name": "Spiral Stair",
+      "aliases": ["stairs", "staircase"],
       "desc": "An iron staircase coils up through the hollow tower. The wind howls through cracks in the stone.",
       "exits": { "down": "base", "up": "lamp_room" },
       "items": []
     },
     "lamp_room": {
       "name": "Lamp Room",
+      "aliases": ["top"],
       "desc": "The top of the tower, walled in rain-streaked glass. The great lamp stands in the middle of the room behind its huge lens. Far out at sea, a ship's light is getting closer.",
       "exits": { "down": "stair" },
       "items": ["great_lamp"]
@@ -80,10 +87,10 @@
       "desc_open": "A shallow drawer in the desk, pulled open.",
       "open_fact": "You slide the drawer open." },
     "logbook": { "name": "logbook", "aliases": ["logbook", "log book", "book", "journal", "log"], "portable": false,
-      "desc": "The last entry reads: 'Oil low. Gone down to the cellar for more. Key to the tower is in my desk, as always.' The ink is fresh. Whoever wrote it never came back up." },
+      "desc": "The last entry reads: 'Oil low. Gone down to the cellar for more. Key to the tower is {key_spot}, as always.' The ink is fresh. Whoever wrote it never came back up." },
     "matches": { "name": "tin of matches", "aliases": ["matches", "match", "tin", "matchbox", "tin of matches"], "portable": true,
       "desc": "A tin of storm matches. Most of them still look dry." },
-    "lantern": { "name": "lantern", "aliases": ["lantern", "hand lantern"], "portable": true,
+    "lantern": { "name": "lantern", "aliases": ["lantern", "hand lantern", "lamp"], "portable": true,
       "light_flag": "lantern_lit",
       "desc": "A tin hand lantern with a little oil in it. It is not lit.",
       "desc_flags": {
@@ -97,6 +104,11 @@
     "shelves": { "name": "shelves", "aliases": ["shelves", "shelf"], "portable": false,
       "desc": "Rotting wooden shelves holding rope, rusted tools and empty bottles.",
       "desc_flags": { "knows_tackle": "Rotting wooden shelves holding rusted tools and empty bottles. Now you know to look, there's a coil of rope rigged through a pulley block among them." } },
+    "sea_chest": { "name": "sea chest", "aliases": ["chest", "sea chest", "trunk"], "portable": false,
+      "container": true, "contains": [],
+      "desc": "A battered sea chest with rope handles. Its lid is shut.",
+      "desc_open": "A battered sea chest, its lid thrown back.",
+      "open_fact": "The lid of the sea chest creaks open." },
     "tackle": { "name": "block and tackle", "aliases": ["tackle", "block and tackle", "pulley", "block", "rope"], "portable": true,
       "desc": "A pulley block threaded with rope. Hooked to the ladder, it would take most of the weight of a person." },
     "keeper": { "name": "keeper", "aliases": ["keeper", "lighthouse keeper", "man", "woman", "person", "figure", "someone", "body"],
@@ -106,7 +118,7 @@
       "talk": [
         { "if": "flag:keeper_rescued", "say": "\"Don't fuss over me,\" the keeper rasps. \"Fill the lamp, light the wick. Go!\"" },
         { "if": "flag:knows_tackle", "say": "\"The tackle,\" the keeper whispers, pointing at the shelves. \"Hook it to the ladder. Quick now.\"" },
-        { "say": "\"Fell off the ladder,\" the keeper whispers. \"Key's in my desk. Oil's down here. There's a block and tackle on the shelves. Rig it to the ladder and you'll have me up in no time. But don't let that ship die for me.\"",
+        { "say": "\"Fell off the ladder,\" the keeper whispers. \"Key's {key_spot}. Oil's down here. There's a block and tackle on the shelves. Rig it to the ladder and you'll have me up in no time. But don't let that ship die for me.\"",
           "set": "knows_tackle", "reveal": { "tackle": "cellar" } }
       ] },
     "iron_door": { "name": "iron door", "aliases": ["door", "iron door"], "portable": false,
@@ -117,6 +129,13 @@
       "desc": "The great lamp sits cold behind its lens. Its oil reservoir is bone dry.",
       "desc_flags": { "lamp_fueled": "The great lamp's reservoir is full of oil, but the wick is dark." } }
   },
+
+  "variants": [
+    { "id": "key_spot", "item": "brass_key", "options": [
+      { "at": "drawer", "text": "in my desk" },
+      { "at": "sea_chest", "text": "in the old sea chest in the cellar" }
+    ] }
+  ],
 
   "uses": [
     { "item": "matches", "target": "lantern", "unless": "lantern_lit", "already": "The lantern is already lit.",

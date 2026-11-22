@@ -1,5 +1,5 @@
 # Standalone development: the game plus its own small model, without the rest of AirplaneMode.
-#   docker compose up -d --build      ->  http://localhost:8765
+#   docker compose up -d --build      ->  http://localhost:8765   (author report: /author, party: /party)
 # On the box, the game runs from the airplanemode platform repo instead, using the shared model.
 
 name: darklight-dev
@@ -17,8 +17,15 @@ services:
     build: .
     environment:
       LLM_URL: http://llm:8080
+      AUTHOR_TOOLS: "1"            # the /author solver report; off on the box
+      DATA_DIR: /data              # leaderboard + save codes survive restarts
+      WORLDS_DIR: /games           # drop new world files in ./games to try them without rebuilding
+    volumes:
+      - data:/data
+      - ./games:/games:ro
     ports:
       - "${PORT:-8765}:8000"
 
 volumes:
   models:
+  data:
