@@ -1,0 +1,25 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Standalone: up (own 0.5B model)",
+			"detail": "http://localhost:8765. First run downloads ~400 MB.",
+			"type": "shell",
+			"command": "docker compose up -d --build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Standalone: down",
+			"type": "shell",
+			"command": "docker compose down",
+			"problemMatcher": []
+		},
+		{
+			"label": "Tests: every ending reachable",
+			"type": "shell",
+			"command": "python tests/test_endings.py",
+			"group": { "kind": "test", "isDefault": true },
+			"problemMatcher": []
+		}
+	]
+}
