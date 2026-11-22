@@ -42,16 +42,16 @@ python evals\parse_eval.py --show            # parse accuracy; --llm http://loca
 - `cli.py draft` calls the Claude API (dev machine only, `requirements-dev.txt`). Nothing in the
   image may call outside services.
 - Storage: `DATA_DIR` empty = memory only. Never default it to a path in the container filesystem.
+  On the box it stays unset by choice (no volume): leaderboard and save codes reset on restart.
+- The app id, repo and image stay named `darklight` even though it hosts several games (Jesse's call).
 
 ## Releasing
 
 Push a `vX.Y.Z` tag. CI tests, then publishes `ghcr.io/jessewolcott/airplanemode-darklight:X.Y.Z`
 (arm64 + amd64, public). Then bump the pinned tag in `../airplanemode/compose.yaml`.
-**Ask Jesse before pushing a release tag.** Released: `v0.1.0`, `v0.2.0`.
+**Ask Jesse before pushing a release tag.** Released: `v0.1.0`, `v0.2.0`, `v0.3.0`.
 
 ## Open follow-ups
 
-- Platform: give darklight a small named volume and `DATA_DIR=/data` so the leaderboard and save
-  codes survive restarts. Optionally mount a games folder at `WORLDS_DIR`.
 - Run `evals/parse_eval.py --llm` against 0.5B and 1.5B to get real model numbers.
 - Grow the parse cases from real `/api/stats?samples=1` logs on the box.
