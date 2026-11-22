@@ -53,5 +53,6 @@ Push a `vX.Y.Z` tag. CI tests, then publishes `ghcr.io/jessewolcott/airplanemode
 
 ## Open follow-ups
 
-- Run `evals/parse_eval.py --llm` against 0.5B and 1.5B to get real model numbers.
+- Run `evals/parse_eval.py --llm` against the standalone 0.5B and the box's Gemma 4 E2B (platform
+  decision 0018) to get real model numbers. On Gemma, model verbs override a right keyword fallback.
 - Grow the parse cases from real `/api/stats?samples=1` logs on the box.
