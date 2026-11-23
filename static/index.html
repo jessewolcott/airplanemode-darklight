@@ -21,7 +21,18 @@
     .app { grid-template-columns: minmax(0, 1fr) 260px; column-gap: 28px;
            grid-template-areas: "header header" "log side" "status side" "form side"; }
   }
-  header { grid-area: header; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 20px 0 12px; border-bottom: 1px solid var(--line); }
+  header { grid-area: header; display: flex; align-items: center; gap: 12px; padding: 16px 0 12px; border-bottom: 1px solid var(--line); }
+  header .meta { flex: 1; min-width: 0; }
+  @media (max-width: 599px) {  /* phones: title and home button on top, the controls on their own row */
+    header { flex-wrap: wrap; row-gap: 8px; }
+    header h1 { flex: 1; }
+    header .meta { order: 1; flex-basis: 100%; justify-content: flex-start; }
+  }
+  a.am-home { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 10px;
+              color: var(--dim); background: var(--panel); border: 1px solid var(--line); text-decoration: none; transition: color .15s, border-color .15s; }
+  a.am-home:hover { color: var(--lamp); border-color: var(--dim); }
+  a.am-home:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; color: var(--lamp); }
+  @media (prefers-reduced-motion: reduce) { a.am-home { transition: none; } }
   h1 { font: 600 1.35rem/1.2 var(--serif); margin: 0; letter-spacing: .02em; white-space: nowrap; }
   h1 span { color: var(--lamp); }
   .meta { font: .75rem var(--mono); color: var(--dim); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
@@ -119,6 +130,12 @@
     <button id="undo" type="button" title="Take back your last move">undo</button>
     <button id="restart" type="button">new game</button>
   </div>
+  <a class="am-home" href="../" aria-label="AirplaneMode home" title="AirplaneMode home">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
+    </svg>
+  </a>
 </header>
 <main id="log" aria-live="polite"></main>
 <aside>
@@ -494,6 +511,12 @@ async function pollParty() {
   } catch {}
   partyTimer = setTimeout(pollParty, 1500);
 }
+
+// ---- AirplaneMode home button: the game itself is saved in the browser, but a party can't be
+// picked up again from here, so ask before leaving while one is running ----
+document.querySelector("a.am-home").addEventListener("click", e => {
+  if (party && !confirm("Leave the game? Party mode ends for this screen.")) e.preventDefault();
+});
 
 async function checkLLM() {
   try {

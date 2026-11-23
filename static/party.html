@@ -29,11 +29,25 @@
   .err { color: #e07a6a; font: .8rem var(--mono); min-height: 1em; }
   .ending { border-top: 3px solid var(--lamp); }
   [hidden] { display: none !important; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  a.am-home { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 10px;
+              color: var(--dim); background: var(--panel); border: 1px solid var(--line); text-decoration: none; transition: color .15s, border-color .15s; }
+  a.am-home:hover { color: var(--lamp); border-color: var(--dim); }
+  a.am-home:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; color: var(--lamp); }
+  @media (prefers-reduced-motion: reduce) { a.am-home { transition: none; } }
 </style>
 </head>
 <body>
 <main>
+  <header class="top">
   <h1 id="title">Party <span>mode</span></h1>
+  <a class="am-home" href="../" aria-label="AirplaneMode home" title="AirplaneMode home">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
+    </svg>
+  </a>
+  </header>
   <section class="card" id="joinCard">
     <label for="code">Code on the big screen</label>
     <input id="code" maxlength="4" autocapitalize="characters" autocomplete="off" placeholder="ABCD">

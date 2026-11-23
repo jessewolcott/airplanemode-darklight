@@ -100,7 +100,9 @@ on a phone, joins with the 4-letter code, suggests commands and votes.
 
 Single file, inline CSS and JS, no framework, no external assets. All fetches are relative
 (`api/new`, `api/turn`, ...). Layout: header (title, narrator status dot, "engine facts" toggle,
-world picker, map toggle on narrow screens, undo, new game), log, status bar, command form, and an
+world picker, map toggle on narrow screens, undo, new game, then the AirplaneMode home button
+`a.am-home` at the right end; below 600 px the controls wrap to their own row under the title and
+the button), log, status bar, command form, and an
 aside (map SVG, clock bar, endings tracker, party panel, leaderboard, options). Side panel shows
 at >= 940 px; on phones the map button swaps it in place of the log.
 
@@ -138,6 +140,12 @@ plus random low thunder rumbles for `storm`.
 
 **Theme**: `theme.accent` overrides CSS `--lamp`; the title's last word gets the accent colour.
 
+**Home button** (platform app contract item 10): `<a class="am-home" href="../">` with the house
+icon, 44 px, on every page (index, party, author; all are served at the app root, so `../` is
+the AirplaneMode menu). The game needs no confirm (it's saved in localStorage and resumes), but
+while the host runs party mode the click asks first, since the party can't be picked up again.
+`tests/test_app.py::test_every_page_has_the_home_button` checks all three pages.
+
 Other controls: name (sent with new/resume and via `api/name`), difficulty (starts a new game),
 save code get/load, start/end party mode (shows code and the `party` URL built with
 `new URL("party", location.href)`), leaderboard tabs per mode. Up/down arrows recall command
@@ -145,12 +153,12 @@ history.
 
 ## The party page (`static/party.html`)
 
-Join card (code from `?code=` if given, name from localStorage), then the latest played move,
+Header (title, home button at the right), then a join card (code from `?code=` if given, name from localStorage), then the latest played move,
 round countdown ("first idea starts the clock"), a suggest box, and the proposals as vote buttons
 (yours outlined). The player id is kept in `sessionStorage` as `party-<CODE>` so a reload rejoins.
 
 ## The author page (`static/author.html`)
 
-World picker → `GET api/author/{world}` → map, problems list, and per layout: positions searched,
+Header (title, world picker, home button at the right) → `GET api/author/{world}` → map, problems list, and per layout: positions searched,
 deadline, a table of each ending's fastest turns and route, moves that close off endings, traps.
 Same content as `python cli.py solve`.

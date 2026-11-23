@@ -23,12 +23,29 @@
   .room rect { fill: #1b2028; stroke: #3a414c; } .room text { font: 8.5px var(--mono); fill: var(--ink); text-anchor: middle; }
   .link { stroke: #3a414c; stroke-width: 2; } .link.locked { stroke: var(--bad); stroke-dasharray: 3 3; }
   svg { max-width: 420px; width: 100%; height: auto; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .top div { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .lead { margin: -8px 0 0; color: var(--dim); }
+  a.am-home { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 10px;
+              color: var(--dim); background: var(--panel); border: 1px solid var(--line); text-decoration: none; transition: color .15s, border-color .15s; }
+  a.am-home:hover { color: var(--lamp); border-color: var(--dim); }
+  a.am-home:focus-visible { outline: 2px solid var(--lamp); outline-offset: 2px; color: var(--lamp); }
+  @media (prefers-reduced-motion: reduce) { a.am-home { transition: none; } }
+  a.am-home svg { width: 22px; max-width: none; }
 </style>
 </head>
 <body>
 <main>
-  <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap"><h1>World report</h1><select id="world"></select>
-    <span style="color:var(--dim)">The solver plays every possible game. Run <code>python cli.py solve</code> for the same report in a terminal.</span></div>
+  <header class="top">
+  <div><h1>World report</h1><select id="world"></select></div>
+  <a class="am-home" href="../" aria-label="AirplaneMode home" title="AirplaneMode home">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
+    </svg>
+  </a>
+  </header>
+  <p class="lead">The solver plays every possible game. Run <code>python cli.py solve</code> for the same report in a terminal.</p>
   <div id="out" class="card">Loading…</div>
 </main>
 <script>

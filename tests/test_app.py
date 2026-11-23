@@ -293,6 +293,15 @@ def test_index_served():
     assert r.status_code == 200 and "api/worlds" in r.text
 
 
+def test_every_page_has_the_home_button():
+    # app contract item 10: the AirplaneMode home button, top right of every page
+    for path in ("/", "/party", "/author"):
+        html = client.get(path).text
+        assert '<a class="am-home" href="../"' in html, path
+        assert 'aria-label="AirplaneMode home"' in html, path
+        assert ">AirplaneMode<" not in html, path
+
+
 def main():
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_") and callable(f)]
     failed = 0
