@@ -50,7 +50,7 @@ python evals\model_eval.py http://127.0.0.1:18080   # the real model: parse, nar
 
 Push a `vX.Y.Z` tag. CI tests, then publishes `ghcr.io/jessewolcott/airplanemode-darklight:X.Y.Z`
 (arm64 + amd64, public). Then bump the pinned tag in `../airplanemode/compose.yaml`.
-**Ask Jesse before pushing a release tag.** Released: `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.3.1` (home button).
+**Ask Jesse before pushing a release tag.** Released: `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.3.1` (home button), `v0.3.2` (keyword verbs beat the model's, tuned for Gemma 4 E2B).
 
 ## Open follow-ups
 
