@@ -3,6 +3,8 @@ Needs the app's requirements:  pip install -r requirements.txt
 
 Run:  python tests/test_app.py
 """
+import asyncio
+import json
 import os
 import sys
 import traceback
@@ -38,6 +40,11 @@ def test_narration_guard_reasons():
     }
     for out, why in cases.items():
         assert server.narration_problem(out, facts) == why, (out, server.narration_problem(out, facts))
+    # "You go up." may come back as climbing or ascending (Gemma 4 E2B's habit), not as a different way
+    up = ["You go up.", "Location: Lamp Room.", "Glass on every side."]
+    assert server.narration_problem("You climb into the lamp room, glass on every side.", up) is None
+    assert server.narration_problem("You ascend to the lamp room, with glass on every side.", up) is None
+    assert server.narration_problem("You descend into the lamp room, with glass on every side.", up) == "dropped_direction"
 
 
 def test_voice_guard():
@@ -189,6 +196,45 @@ def test_fake_model_voice_and_fallbacks():
         assert set(s["voice"]["rejected_by"]) == {"gendered", "too_short"}, s
     finally:
         server.chat, server.LLM_URL = real_chat, real_url
+
+
+def test_model_verb_does_not_override_a_right_keyword():
+    """Gemma 4 E2B's verb picks that were wrong where the keyword fallback was right (decision 0020)."""
+    async def parse_with(model_verb, direction, text, g):
+        async def fake_chat(messages, max_tokens, temperature, schema=None):
+            return json.dumps({"verb": model_verb, "direction": direction})
+        real_chat, real_url = server.chat, server.LLM_URL
+        server.chat, server.LLM_URL = fake_chat, "http://fake"
+        try:
+            cmd, raw, by = await server.understand(text, g)
+            return cmd, by
+        finally:
+            server.chat, server.LLM_URL = real_chat, real_url
+
+    def at(world, steps):
+        g = Game(server.WORLDS[world])
+        for s in steps:
+            g.do(server.parse_rule(s, g))
+        return g
+
+    run = asyncio.run
+    cottage = at("darklight", ["n"])
+    assert run(parse_with("go", "south", "fetch the lamp from the table", cottage.clone())) == (
+        {"verb": "take", "object": "lantern"}, "model")
+    held = at("darklight", ["n", "take lantern"])
+    assert run(parse_with("go", "south", "leave the lantern here", held.clone()))[0] == {"verb": "drop", "object": "lantern"}
+    assert run(parse_with("help", "none", "I need a hint", cottage.clone()))[0] == {"verb": "hint"}
+    # the hidden pulley ("pull" ~ "pulley") isn't what the player means: what's in front of them is
+    assert run(parse_with("open", "none", "pull open the drawer", cottage.clone()))[0]["object"] == "drawer"
+    # people rules apply to the model's verb as well: "them" is the only person here
+    cellar = at("darklight", ["n", "take matches", "take lantern", "light lantern", "d"])
+    assert run(parse_with("help", "none", "rescue them", cellar.clone()))[0] == {"verb": "help", "object": "keeper"}
+    # no keyword: the model's verb stands; a named place or direction keeps the model's "go"
+    shore = at("darklight", [])
+    assert run(parse_with("go", "east", "make my way to the lighthouse", shore.clone()))[0] == {"verb": "go", "direction": "east"}
+    assert run(parse_with("go", "north", "wander off to the north", shore.clone()))[0] == {"verb": "go", "direction": "north"}
+    trail = at("frozenpass", ["e", "open cupboard", "take all", "unlock door", "e", "take firewood and axe", "w", "w"])
+    assert run(parse_with("go", "up", "cut steps in the ice", trail.clone()))[0]["verb"] == "use"
 
 
 def test_new_game_mode_and_random_layout():

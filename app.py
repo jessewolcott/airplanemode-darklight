@@ -28,9 +28,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import solver
-from engine import MODES, Game, load_worlds, modes_for, parse_rule, pick_choices
+from engine import MODES, Game, load_worlds, modes_for, parse_rule, pick_choices, to_dir
 from party import Party, new_code
-from parsing import FILLER, build_command, cue_verb, fallback_parse, mentions, place_direction  # noqa: F401  (tests use these)
+from parsing import (FILLER, build_command, cue_verb, fallback_parse, keyword_verb,  # noqa: F401  (tests use these)
+                     mentions, place_direction)
 from store import Store
 
 LLM_URL = os.getenv("LLM_URL", "http://llm:8080").rstrip("/")
@@ -145,6 +146,7 @@ PARSE_EXAMPLES = [
 ]
 async def llm_parse(text, game):
     nouns = mentions(text, game)
+    nouns = [n for n in nouns if n in game.visible()] or nouns   # as fallback_parse: what's in front of you
     exits = game.exit_names()
     direction = place_direction(text, game)
     own = game.world.get("verbs", {})
@@ -165,13 +167,21 @@ async def llm_parse(text, game):
     msgs.append({"role": "user", "content": f"Player: {text}\nMentioned: {named}\nExits: {ex}"})
     raw = json.loads(await chat(msgs, 30, 0.0, schema))
     raw["mentioned"] = nouns
-    cue = cue_verb(text, game)
-    if cue and (nouns or cue == "board") and raw["verb"] not in ("go", cue):
-        raw["verb_cue"] = cue  # an unambiguous verb word beats the model's guess
-        raw["verb"] = cue
-    if raw["verb"] == "go":
-        direction = direction or (raw["direction"] if raw["direction"] != "none" else None)
-    return build_command(raw["verb"], nouns, direction, game), raw
+    verb = raw["verb"]
+    if verb == "unknown":
+        return {"verb": "unknown"}, raw
+    hint = raw["direction"] if raw["direction"] != "none" else None
+    # A keyword verb beats the model's guess ("fetch the lamp" is take, "leave the lantern" is drop),
+    # as long as it makes a whole command. The model keeps "go" when the player named a place or a
+    # direction ("row over to the island"), and fills in the verb when there's no keyword at all.
+    kw = keyword_verb(text, game)
+    if kw and kw != verb and not (verb == "go" and (direction or any(to_dir(w) for w in re.findall(r"[a-z]{2,}", text.lower())))):
+        cmd = fallback_parse(text, game, verb=kw)
+        if cmd["verb"] != "unknown" and cmd != {"verb": "go"}:
+            raw["verb_keyword"] = kw
+            return cmd, raw
+    # same finishing rules as without a model: visible things first, people, "where", directions
+    return fallback_parse(text, game, verb=verb, exit_hint=hint), raw
 
 
 # ---------- 2. NARRATE ----------
@@ -199,6 +209,9 @@ CLAIMS = [
     {"unlock", "unlocks", "unlocked"},
     {"pour", "pours", "fill", "fills"},
 ]
+# "You go up." survives as "you climb"/"you ascend" too (Gemma prefers those)
+DIRECTION_WORDS = {"up": {"ascend", "ascends", "climb", "climbs", "upward", "upwards", "upstairs"},
+                   "down": {"descend", "descends", "downward", "downwards", "downstairs"}}
 # first person, or a gendered stranger: the player is "you" and other people are "they"
 FIRST_PERSON = re.compile(r"\b(I|I'm|I've|I'd|me|my|myself|we|our|he|his|him|she|her)\b", re.I)
 
@@ -230,7 +243,7 @@ def narration_problem(out, facts):
         return "claimed_action"
     for f in facts:
         m = re.match(r"You go (\w+)\.$", f)  # the direction actually taken must survive
-        if m and m.group(1) not in low:
+        if m and m.group(1) not in low and not DIRECTION_WORDS.get(m.group(1), set()) & out_words:
             return "dropped_direction"
     for f in facts:  # every listed item must survive
         m = re.match(r"(Items here: |Inside: |The )(.*?)( is here)?\.$", f)

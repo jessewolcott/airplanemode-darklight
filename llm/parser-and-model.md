@@ -3,7 +3,7 @@
 ## Pipeline (app.py:524 `understand`)
 
 ```
-text ──> engine.parse_rule ──(None)──> LLM_URL set? ──yes──> app.llm_parse
+text ──> engine.parse_rule ──(None)──> LLM_URL set? ──yes──> app.llm_parse (keyword verb wins, see below)
              │ cmd                          │no                 │ verb != unknown → "model"
              v                              v                   │ verb == unknown → fallback_parse;
           "rules"                    parsing.fallback_parse     │    known → "fallback", else model's "unknown"
@@ -52,7 +52,11 @@ classification task a 0.5B model handles. Both the model path and the fallback f
   noun as object, next noun as target.
 - anything else: `{verb, object: first noun}`.
 
-## Fallback parser: `fallback_parse(text, game)` (parsing.py:139)
+## Fallback parser: `fallback_parse(text, game, verb=None, exit_hint=None)` (parsing.py)
+
+With `verb` given (the model's or a keyword's), step 4 is skipped and the rest finishes the
+command; `exit_hint` is the model's exit for `go` when the text names no place or direction.
+Step 4 on its own is `keyword_verb(text, game)`.
 
 No model. Errs toward harmless commands. Steps:
 
@@ -120,13 +124,25 @@ Only reached when `parse_rule` returned None.
   Exits: north -> Keeper's Cottage, east -> Base of the Lighthouse
   ```
 - `max_tokens=30`, `temperature=0.0`. Output parsed with `json.loads`.
-- **Guards after the model**:
-  - `raw["mentioned"] = nouns` (for the debug view).
-  - Cue override: if `cue_verb` finds a word and (there are nouns or the cue is `board`) and the
-    model's verb is neither `go` nor the cue → replace the verb with the cue (`raw["verb_cue"]`).
-  - For `go`: code's `place_direction` wins; else the model's direction unless `none`.
-  - `build_command` turns verb + code's nouns into the command. The model never names objects.
-- If the result is `unknown`, `understand` still tries `fallback_parse`.
+- **After the model** (changed for Gemma 4 E2B, platform decision 0020; before, a cue word
+  only overrode the model when nouns were named, and the model's verb went straight into
+  `build_command` with every mentioned noun, hidden ones too):
+  - `raw["mentioned"] = nouns`, narrowed to the visible ones if any are visible (also what the
+    prompt's `Mentioned:` line shows), so "pull" isn't the hidden pulley.
+  - Model says `unknown` → `{"verb": "unknown"}` (then `understand` tries `fallback_parse`).
+  - **Keyword beats model**: `keyword_verb(text)` (parsing.py: phrases, cue words, then the
+    `FALLBACK_VERBS`/world verb words: the fallback's own verb step) finds a verb that differs
+    from the model's → `fallback_parse(text, verb=keyword)`; if that makes a whole command (not
+    `unknown`, not a bare `go`) it's used and `raw["verb_keyword"]` records it. Exception: the
+    model keeps `go` when the player named a place (`place_direction`) or a direction word of
+    2+ letters. Why: Gemma picked `go`/`board`/`help` for "fetch the lamp", "leave the lantern",
+    "load the stove", "cut steps", "I need a hint", where the keyword was right (12 of the 112
+    tuned cases got worse than with no model at all).
+  - Otherwise `fallback_parse(text, verb=model verb, exit_hint=model direction)`: the model's
+    verb goes through the same finishing rules as the fallback (visible nouns, `where` → look,
+    people rules like "rescue them" → help keeper and "use the pulley to lift the keeper" →
+    help, examine without nouns → look, `build_command`). For `go`, a named place wins, then a
+    direction word in the text, then the model's exit.
 - The page shows `model_raw` and the parsed command when "engine facts" is ticked.
 
 ## Model call 2: NARRATE (`narrate` app.py:389, `llm_narrate` app.py:248)
@@ -155,7 +171,7 @@ description is also narrated. Resume, undo and plain failures use `plain()`.
 | `repetitive` | duplicate sentence or more than 5 sentences |
 | `copied_example` | uses a word from `EXAMPLE_ONLY` (mill, waterwheel, flour, sack, rope, coil, shoulder, dust) that isn't in the facts |
 | `claimed_action` | uses a verb from a `CLAIMS` group (take/grab/pocket..., light/lit/strike..., unlock..., pour/fill...) when no word of that group is in the facts |
-| `dropped_direction` | a `You go <d>.` fact whose `<d>` isn't in the output |
+| `dropped_direction` | a `You go <d>.` fact whose `<d>` isn't in the output; for up/down a synonym word counts (`DIRECTION_WORDS`: climb/ascend/upstairs, descend/downstairs), since Gemma writes "You ascend to the belfry" |
 | `dropped_item` | for `Items here: ...`, `Inside: ...` and `The X is here.` facts, the last word of each name must appear |
 
 - Each rejection increments `STATS["narrate_rejected"][reason]` and logs to `SAMPLES["narrate"]`.

@@ -136,9 +136,25 @@ def cue_verb(text, game):
     return None
 
 
-def fallback_parse(text, game):
-    """Understand free text with no model: keyword verbs plus fuzzy nouns and places.
-    Errs on the side of harmless commands: a bare noun is examined, not used."""
+def keyword_verb(text, game):
+    """The verb a keyword in the text names, or None: two-word phrases, cue words anywhere, then the
+    first word in the keyword table or the world's own verbs."""
+    words = re.findall(r"[a-z]+", text.lower())
+    verb = next((v for need, v in PHRASES if need <= set(words)), None) or cue_verb(text, game)
+    if verb is None:
+        own = game.verb_words()
+        for w in words:
+            if w in FALLBACK_VERBS:
+                return FALLBACK_VERBS[w]
+            if w in own and len(w) >= 3:   # "i", "x", "l" only count alone, and the rule parser handles that
+                return own[w]
+    return verb
+
+
+def fallback_parse(text, game, verb=None, exit_hint=None):
+    """Understand free text: keyword verbs plus fuzzy nouns and places. Errs on the side of harmless
+    commands: a bare noun is examined, not used. With no model this is the whole parser; with one,
+    the model's verb comes in as `verb` (and its exit as `exit_hint`) and the same rules finish it."""
     words = re.findall(r"[a-z]+", text.lower())
     if not words:
         return {"verb": "unknown"}
@@ -147,20 +163,14 @@ def fallback_parse(text, game):
     nouns = seen_now or nouns          # people mean what's in front of them ("pull" isn't the hidden pulley)
     direction = place_direction(text, game)
     dir_word = next((to_dir(w) for w in words if to_dir(w) and w not in ("u", "d", "e", "w", "n", "s")), None)
-    verb = next((v for need, v in PHRASES if need <= set(words)), None) or cue_verb(text, game)
     if verb is None:
-        own = game.verb_words()
-        for i, w in enumerate(words):
-            if w in FALLBACK_VERBS:
-                verb = FALLBACK_VERBS[w]
-                break
-            if w in own and len(w) >= 3:   # "i", "x", "l" only count alone, and the rule parser handles that
-                verb = own[w]
-                break
+        verb = keyword_verb(text, game)
     if words[0] == "where" and verb in (None, "go"):
         return {"verb": "look"}            # "where can I go?"
     if direction is None and (verb == "go" or not nouns):
         direction = dir_word               # "up" in "top up the lamp" isn't a direction
+    if direction is None and verb == "go":
+        direction = exit_hint              # the model's pick when no place or direction was named
     if verb == "go" and not direction and "climb" in words and "up" in game.exits():
         direction = "up"
     people = [n for n in nouns if game.items[n].get("person")]

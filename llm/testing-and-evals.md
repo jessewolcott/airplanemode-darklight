@@ -11,7 +11,7 @@ root on `sys.path`). Status on 2026-11-22: all pass.
 | `tests/test_endings.py` | stdlib | `ROUTES`: a scripted command list per ending per world, replayed with `parse_rule` only (every step must parse). Asserts every world has routes and every ending has one; checks the ending reached. Plus: the bonfire only lights on the shore |
 | `tests/test_engine.py` | stdlib | 15 engine rules and fixed bugs: dropped lit lantern still lights the room; missing-tool messages; looking/failing is free; talk with news costs a turn but repeating doesn't; multi-object take; "block and tackle" is one object; keeper's tip shortens the rescue (cost 4 vs 1); tackle hidden until mentioned; lantern burns out and can be refilled; refill renews the timer; `use oil` prefers the room's target; snapshot round trip; restore rejects tampered saves; validate catches mistakes; missing fallbacks don't crash |
 | `tests/test_kit.py` | stdlib (+ `jsonschema` optional) | 17: variants move items and fill text without mutating the loaded world; random layouts cover every option; variant survives save/restore; modes (darklight deadlines relaxed 57 / normal 38 / hard 32, relaxed has no timers, hard has no hints); world verbs parse and run (fogbell `shout`); interaction `requires`; validate catches verb/variant/placeholder mistakes; solver finds every ending in every world with no problems; **solver routes replay through `parse_rule` with the same turns**; solver catches a constructed dead end and a too-slow ending; **parse-eval floors** (tuned >= 95%, held-out >= 50%); `cli.py check` passes and the template is valid and solvable; `check` fails on a broken world; `play` reaches an ending from stdin; schema accepts every world + template (skipped without jsonschema); `load_world` reports every problem |
-| `tests/test_app.py` | `requirements.txt` (fastapi, httpx) | 20, with `LLM_URL=""`, `DATA_DIR=""`, `AUTHOR_TOOLS=1` set before importing `app`: narration guard reasons; voice guard; `build_command` multi-take and use-pair; fuzzy `mentions`; session TTL and cap; worlds + new game; turn and undo (free turns aren't undo steps); undo an ending; resume after a "restart" (sessions cleared) and bad saves rejected; stats + health; **fake model** (monkeypatched `server.chat` returning queued replies: rejected narration falls back, accepted voice used, rejected voice falls back, stats count reasons); modes and random layouts via the API; no director hints in hard mode; save codes; leaderboard scores from the server (no double counting, no anonymous scores); store persists across instances; a party round plays the winning idea on the host session; author report + stats samples + page routes |
+| `tests/test_app.py` | `requirements.txt` (fastapi, httpx) | 22 (incl. `test_model_verb_does_not_override_a_right_keyword`, fake model verbs vs keywords), with `LLM_URL=""`, `DATA_DIR=""`, `AUTHOR_TOOLS=1` set before importing `app`: narration guard reasons; voice guard; `build_command` multi-take and use-pair; fuzzy `mentions`; session TTL and cap; worlds + new game; turn and undo (free turns aren't undo steps); undo an ending; resume after a "restart" (sessions cleared) and bad saves rejected; stats + health; **fake model** (monkeypatched `server.chat` returning queued replies: rejected narration falls back, accepted voice used, rejected voice falls back, stats count reasons); modes and random layouts via the API; no director hints in hard mode; save codes; leaderboard scores from the server (no double counting, no anonymous scores); store persists across instances; a party round plays the winning idea on the host session; author report + stats samples + page routes |
 
 Notes:
 - `test_kit` temporarily writes `templates/_broken_test.json` and `templates/_bad_load.json` and
@@ -54,7 +54,32 @@ the effect of the intended command. So "unlock door" and "use key on door" both 
 | tuned (112) | 57.1% | 100.0% |
 | held-out (33) | 27.3% | 54.5% |
 
-Model numbers (`--llm`) have not been recorded yet (open follow-up: run against the standalone 0.5B and the box's Gemma 4 E2B).
+### Model eval (`evals/model_eval.py`)
+
+`python evals/model_eval.py <llama.cpp URL> [--samples 3] [--only parse|narrate|voice] [--show] [--out f.json]`.
+Scores the real model the way the server uses it, every case `--samples` times, in one event
+loop (the shared `httpx.AsyncClient` breaks across `asyncio.run` calls: `parse_eval.py --llm`
+runs one per set). Parse: `app.understand` on both sets plus **model hurt** = cases the no-model
+fallback gets right but the served parse gets wrong. Narrate: every story beat on the first
+route of each world (39 beats). Voice: every distinct line a visible person says along all routes (6).
+To reach the dev stack's model from the host, publish it on 127.0.0.1 with a socat container
+(see the eval's sibling in the Couch repo, `evals/persona_eval.py`, for the command).
+
+Gemma 4 E2B (Q4_K_M, the box's model since platform decision 0018), 3 samples, 2026-11-22
+(platform decision 0020):
+
+| | before | after (keyword beats model, visible nouns, up/down synonyms) |
+|---|---|---|
+| tuned (112), rules + model | 100 (89.3%), model hurt 12 | 112 (100%), model hurt 0 |
+| held-out (33), rules + model | 23 (69.7%), model hurt 1 | 25 (75.8%), model hurt 0 |
+| narration accepted (117) | 114 (first try 112) | 115 (first try 114) |
+| voice accepted (18) | 18 | 18 |
+
+Parsing is at temperature 0, so the 3 samples agree. Held-out misses left on Gemma: "take a
+look at ..." (take), "any hints?" (help), "turn on the lantern" (use), "what have I got",
+"open the desk" (the drawer), "go into the lighthouse", "light a match" (the stove). Remaining
+narration rejections: a dropped "sexton" (right) and "candlesticks fill the space" read as a
+claimed `fill` (a false positive; the retry usually passes).
 Floors enforced by `test_kit.test_parse_eval_floor`: tuned >= 0.95, held-out >= 0.5. Raise them as
 the parser improves.
 

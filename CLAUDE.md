@@ -25,6 +25,7 @@ python cli.py play <id> --debug              # terminal play, no server
 python tests\test_endings.py; python tests\test_engine.py; python tests\test_kit.py
 python tests\test_app.py                     # needs requirements.txt (fastapi, httpx)
 python evals\parse_eval.py --show            # parse accuracy; --llm http://localhost:8080 to score the model
+python evals\model_eval.py http://127.0.0.1:18080   # the real model: parse, narration, voice (3 samples each)
 ```
 
 ## Rules
@@ -53,6 +54,6 @@ Push a `vX.Y.Z` tag. CI tests, then publishes `ghcr.io/jessewolcott/airplanemode
 
 ## Open follow-ups
 
-- Run `evals/parse_eval.py --llm` against the standalone 0.5B and the box's Gemma 4 E2B (platform
-  decision 0018) to get real model numbers. On Gemma, model verbs override a right keyword fallback.
+- Gemma 4 E2B numbers are in `llm/testing-and-evals.md` (platform decision 0020: a keyword verb
+  now beats the model's). Rerun `evals/model_eval.py <url>` after any model or prompt change.
 - Grow the parse cases from real `/api/stats?samples=1` logs on the box.
