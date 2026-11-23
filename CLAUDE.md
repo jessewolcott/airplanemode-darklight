@@ -49,7 +49,7 @@ python evals\parse_eval.py --show            # parse accuracy; --llm http://loca
 
 Push a `vX.Y.Z` tag. CI tests, then publishes `ghcr.io/jessewolcott/airplanemode-darklight:X.Y.Z`
 (arm64 + amd64, public). Then bump the pinned tag in `../airplanemode/compose.yaml`.
-**Ask Jesse before pushing a release tag.** Released: `v0.1.0`, `v0.2.0`, `v0.3.0`.
+**Ask Jesse before pushing a release tag.** Released: `v0.1.0`, `v0.2.0`, `v0.3.0`, `v0.3.1` (home button).
 
 ## Open follow-ups
 
