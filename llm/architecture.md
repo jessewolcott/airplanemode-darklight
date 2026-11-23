@@ -114,7 +114,7 @@ loses nothing: on a 404 the page calls `api/resume` and retries once.
 ## AirplaneMode platform contract (`../airplanemode/docs/app-contract.md`)
 
 - One image `ghcr.io/jessewolcott/airplanemode-darklight`, arm64 + amd64, semver tags; the
-  platform pins an exact tag (`../airplanemode/compose.yaml`: `:0.3.0` at time of writing).
+  platform pins an exact tag (`../airplanemode/compose.yaml`: `:0.3.1` at time of writing).
 - One port (8000) inside the container; Caddy serves it at `/darklight/` and **strips the prefix**
   (`handle_path /darklight/*`). Hence relative URLs everywhere in the pages.
 - Fully offline: no CDNs/fonts/analytics; favicon is a data URI, audio is synthesized with Web

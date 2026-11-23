@@ -100,6 +100,6 @@ Triggers: push to `main`, push of `v*` tags, pull requests. One job:
 
 1. **Ask Jesse first** (pushing a `v*` tag publishes a public image).
 2. Push `vX.Y.Z`; CI tests and publishes `ghcr.io/jessewolcott/airplanemode-darklight:X.Y.Z`.
-3. Bump the pinned tag in `../airplanemode/compose.yaml`. Released so far: v0.1.0, v0.2.0, v0.3.0.
+3. Bump the pinned tag in `../airplanemode/compose.yaml`. Released so far: v0.1.0, v0.2.0, v0.3.0, v0.3.1 (home button).
 
 Nothing has been tested on real router hardware yet (screenshots are from the laptop stack).

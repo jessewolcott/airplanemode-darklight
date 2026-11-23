@@ -1,7 +1,7 @@
 # The Dark Light: how it's built
 
 Checked-in reference for LLMs and engineers who open this repo with no prior context
-(`.dockerignore` lists `llm`, so none of this reaches the image). Written 2026-11-22 against the code at release `v0.3.0`+ (main).
+(`.dockerignore` lists `llm`, so none of this reaches the image). Written 2026-11-22 against the code at release `v0.3.1` (main).
 When the code and this folder disagree, the code wins; fix these notes.
 
 ## Overview
